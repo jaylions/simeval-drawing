@@ -46,11 +46,11 @@ function expectReject(state, draft, code) {
 // ---------------------------------------------------------------------------
 
 const script = [
-  { kind: "draw", points: [{ x: 200, y: 200 }, { x: 400, y: 420 }, { x: 600, y: 200 }], width: 4 },
-  { kind: "draw", points: [{ x: 300, y: 700 }, { x: 500, y: 700 }], width: 3 },
+  { kind: "draw", points: [{ x: 200, y: 200 }, { x: 400, y: 420 }, { x: 600, y: 200 }], width: 6 },
+  { kind: "draw", points: [{ x: 300, y: 700 }, { x: 500, y: 700 }], width: 6 },
   { kind: "erase", points: [{ x: 380, y: 660 }, { x: 420, y: 740 }], width: 30 },
   { kind: "undo" },
-  { kind: "draw", points: [{ x: 700, y: 300 }, { x: 820, y: 380 }], width: 3 },
+  { kind: "draw", points: [{ x: 700, y: 300 }, { x: 820, y: 380 }], width: 6 },
   { kind: "description", text: "a lantern over water" }
 ];
 
@@ -167,7 +167,7 @@ assert.deepEqual(
   let state = trial("human", "p001");
   const base = { sessionId: "session-1", trialId: "trial-1", stimulusId, actorType: "human", actorId: "p001" };
   state = push(state, { ...base, timestampMs: 1, eventType: "draw_stroke",
-    payload: { tool: "pencil", strokeId: "s1", width: 3, points: [{ x: 10, y: 10 }, { x: 90, y: 90 }] } });
+    payload: { tool: "pencil", strokeId: "s1", width: 6, points: [{ x: 10, y: 10 }, { x: 90, y: 90 }] } });
   state = push(state, { ...base, timestampMs: 2, eventType: "description_update", payload: { description: "kite" } });
   state = push(state, { ...base, timestampMs: 3, eventType: "undo", payload: {} });
   // Undo reached the stroke, not the description.
@@ -181,7 +181,7 @@ assert.deepEqual(
 // ---------------------------------------------------------------------------
 
 {
-  const stroke = { strokeId: "s1", width: 3, points: [{ x: 100, y: 500 }, { x: 900, y: 500 }] };
+  const stroke = { strokeId: "s1", width: 6, points: [{ x: 100, y: 500 }, { x: 900, y: 500 }] };
   const fragments = eraseFromStrokes([stroke], [{ x: 500, y: 450 }, { x: 500, y: 550 }], 40);
   assert.equal(fragments.length, 2, "an eraser crossing a line's middle must leave two fragments");
   assert.ok(fragments[0].points.at(-1).x < 500 && fragments[1].points[0].x > 500);
@@ -210,7 +210,7 @@ assert.deepEqual(
   let wiped = trial("human", "p001");
   const base = { sessionId: "session-1", trialId: "trial-1", stimulusId, actorType: "human", actorId: "p001" };
   wiped = push(wiped, { ...base, timestampMs: 1, eventType: "draw_stroke",
-    payload: { tool: "pencil", strokeId: "s1", width: 3, points: [{ x: 0, y: 512 }, { x: 1024, y: 512 }] } });
+    payload: { tool: "pencil", strokeId: "s1", width: 6, points: [{ x: 0, y: 512 }, { x: 1024, y: 512 }] } });
   wiped = push(wiped, { ...base, timestampMs: 2, eventType: "erase_stroke",
     payload: { tool: "eraser", strokeId: "e1", width: 64, points: [{ x: 0, y: 512 }, { x: 1024, y: 512 }] } });
   assert.equal(deriveScene(wiped).strokes.length, 0);
@@ -260,27 +260,31 @@ for (const actorType of ["human", "agent"]) {
   let state = trial(actorType, actorId);
 
   expectReject(state, { ...base, timestampMs: 1, eventType: "draw_stroke",
-    payload: { tool: "pencil", width: 3, points: [{ x: -1, y: 10 }, { x: 20, y: 20 }] } }, "out_of_bounds");
+    payload: { tool: "pencil", width: 6, points: [{ x: -1, y: 10 }, { x: 20, y: 20 }] } }, "out_of_bounds");
   expectReject(state, { ...base, timestampMs: 1, eventType: "draw_stroke",
-    payload: { tool: "pencil", width: 3, points: [{ x: 10, y: canonicalArtboard.height + 1 }, { x: 20, y: 20 }] } }, "out_of_bounds");
+    payload: { tool: "pencil", width: 6, points: [{ x: 10, y: canonicalArtboard.height + 1 }, { x: 20, y: 20 }] } }, "out_of_bounds");
   expectReject(state, { ...base, timestampMs: 1, eventType: "draw_stroke",
     payload: { tool: "pencil", width: 999, points: [{ x: 10, y: 10 }, { x: 20, y: 20 }] } }, "invalid_width");
+  // Below the minimum a stroke antialiases to grey in the 224 px scoring render
+  // instead of landing as ink, so thin widths are refused for both actors.
+  expectReject(state, { ...base, timestampMs: 1, eventType: "draw_stroke",
+    payload: { tool: "pencil", width: 1, points: [{ x: 10, y: 10 }, { x: 20, y: 20 }] } }, "invalid_width");
   expectReject(state, { ...base, timestampMs: 1, eventType: "draw_stroke",
     payload: { tool: "eraser", width: 3, points: [{ x: 10, y: 10 }, { x: 20, y: 20 }] } }, "unsupported_tool");
   expectReject(state, { ...base, timestampMs: 1, eventType: "draw_stroke",
-    payload: { tool: "pencil", width: 3, points: [{ x: 10, y: 10 }] } }, "invalid_points");
+    payload: { tool: "pencil", width: 6, points: [{ x: 10, y: 10 }] } }, "invalid_points");
 
   // Logged validation rule: no submission without a drawing attempt.
   assert.equal(hasDrawingAttempt(state), false);
   expectReject(state, { ...base, timestampMs: 2, eventType: "submit", payload: {} }, "no_drawing_attempt");
 
   state = push(state, { ...base, timestampMs: 3, eventType: "draw_stroke",
-    payload: { tool: "pencil", strokeId: "s1", width: 3, points: [{ x: 10, y: 10 }, { x: 90, y: 90 }] } });
+    payload: { tool: "pencil", strokeId: "s1", width: 6, points: [{ x: 10, y: 10 }, { x: 90, y: 90 }] } });
   state = push(state, { ...base, timestampMs: 4, eventType: "submit", payload: {} });
 
   // Nothing is accepted after submission, so the drawing cannot be altered.
   expectReject(state, { ...base, timestampMs: 5, eventType: "draw_stroke",
-    payload: { tool: "pencil", width: 3, points: [{ x: 10, y: 10 }, { x: 90, y: 90 }] } }, "trial_submitted");
+    payload: { tool: "pencil", width: 6, points: [{ x: 10, y: 10 }, { x: 90, y: 90 }] } }, "trial_submitted");
   expectReject(state, { ...base, timestampMs: 6, eventType: "undo", payload: {} }, "trial_submitted");
   expectReject(state, { ...base, timestampMs: 7, eventType: "description_update",
     payload: { description: "changed my mind" } }, "trial_submitted");
@@ -290,7 +294,7 @@ for (const actorType of ["human", "agent"]) {
 expectReject(trial("human", "p001"), {
   sessionId: "session-1", trialId: "trial-1", stimulusId, actorType: "agent", actorId: "agent-1",
   timestampMs: 1, eventType: "draw_stroke",
-  payload: { tool: "pencil", width: 3, points: [{ x: 10, y: 10 }, { x: 20, y: 20 }] }
+  payload: { tool: "pencil", width: 6, points: [{ x: 10, y: 10 }, { x: 20, y: 20 }] }
 }, "actor_mismatch");
 
 console.log("audra canonical integrity tests passed");

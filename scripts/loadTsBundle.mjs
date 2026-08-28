@@ -7,12 +7,13 @@ import { build } from "esbuild";
  * cross-module imports are type-only. The audra modules import each other at
  * runtime, so they need a real bundle step.
  */
-export async function loadTsBundle(entryPath) {
+export async function loadTsBundle(entryPath, platform = "neutral") {
   const result = await build({
     entryPoints: [entryPath],
     bundle: true,
     format: "esm",
-    platform: "neutral",
+    platform,
+    external: platform === "node" ? ["node:zlib"] : [],
     target: "es2022",
     write: false,
     logLevel: "silent"

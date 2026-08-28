@@ -4,10 +4,12 @@ A task mode for comparing human and agent creative drawing processes on the
 same stimulus, under the same allowed operations.
 
 > **The bundled stimulus is a development fixture.** `dev-fixture-01` was drawn
-> for interface development. It is **not** an official CAP/MTCI stimulus, is not
+> for interface development. It is **not** an official MTCI stimulus, is not
 > derived from or validated against any published incomplete-shapes instrument,
 > and must not be used for analysable data collection. Replace it with the
-> official contour set first.
+> official contour set first — see
+> [audra-scoring-and-stimuli.md](audra-scoring-and-stimuli.md) for where the
+> official stimuli come from and what CAP, MTCI, and AuDrA each actually are.
 
 ## Running it
 
@@ -61,6 +63,7 @@ makes replay and the export bundle deterministic.
 | `src/audra/humanInput.ts` | Pointer samples → canonical events |
 | `src/audra/agentTools.ts` | Agent tool surface → canonical events |
 | `src/audra/server/renderer.ts` | Headless SVG → PNG rasterizer (resvg) |
+| `src/audra/server/png.ts` | RGB PNG encoder, required by AuDrA's preprocessing |
 | `src/audra/server/exportBundle.ts` | Writes a bundle to disk; replays posted logs |
 | `src/audra/server/` | Authoritative trial registry and HTTP endpoints |
 | `scripts/audraAgentDriver.mjs` | Model-agnostic agent driver, plus a mock trajectory |
@@ -338,6 +341,7 @@ These are real and should be reported alongside any comparison.
 npm run test:audra          # canonical layer
 npm run test:audra-driver   # tolerant reply parser
 npm run test:audra-export   # bundle contents and determinism
+npm run test:audra-scoring-image  # RGB scoring PNG
 ```
 
 `scripts/audraCanonicalIntegrity.test.mjs` covers: human and agent dispatch of
@@ -479,10 +483,19 @@ tool call has no gesture and no pressure.
 
 The score input is rendered **directly from the canonical SVG at 224 px**, not
 downsampled from the archival PNG, so no intermediate rounding enters the
-scored image. Both rasters are plain RGB PNG on white with no UI chrome,
+scored image. Both rasters are **3-channel RGB** PNG on white with no UI chrome,
 cursor, grid, label, toolbar, or embedded metadata, and the actor identity
 appears only in `session.json`. Dimensions, scaling, and preprocessing choices
 are recorded in `session.json.exportProfile`.
+
+RGB is a hard requirement, not a preference: AuDrA preprocesses with
+`PIL.ImageOps.invert`, which fails on a 4-channel image. resvg renders RGBA, so
+`src/audra/server/png.ts` encodes the flattened RGB PNG itself.
+
+Stroke widths are set so a mark survives the 224 px render as solid ink — at the
+original default of 3 units, no pixel in the scoring image was solid. See
+[audra-scoring-and-stimuli.md](audra-scoring-and-stimuli.md) for the
+measurements, AuDrA's exact preprocessing, and how to run the scorer.
 
 ### Replay
 
@@ -493,4 +506,4 @@ plays through every event boundary and needs no network access.
 
 ## Not yet implemented
 
-- The official CAP/MTCI stimulus set.
+- The official MTCI stimulus set.

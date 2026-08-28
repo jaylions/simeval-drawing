@@ -9,10 +9,11 @@
 
     Drawn in the same near-black ink and stroke weight as participant marks, so
     the contours carry no colour, weight, or label cue that a participant could
-    read as extra task information.
+    read as extra task information. Stroke width 6 matches the pencil default and
+    survives the 224 px AuDrA scoring render as solid ink.
   -->
   <rect width="1024" height="1024" fill="#ffffff"/>
-  <g fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <g fill="none" stroke="#111111" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M 187.2 259 A 120 120 0 0 1 268.9 184.1"/>
     <path d="M 331.1 184.1 A 120 120 0 0 1 412.8 259"/>
     <path d="M 170 690 C 230 620 290 770 350 700 S 440 630 470 690"/>

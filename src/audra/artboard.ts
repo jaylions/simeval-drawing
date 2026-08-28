@@ -16,7 +16,11 @@ export const canonicalArtboard = {
 // actor: color would leak semantic information that the task does not grant.
 export const inkColor = "#111111";
 
-export const pencilWidth = { min: 1, max: 12, default: 3 } as const;
+// Widths are chosen so a mark survives the 224 px AuDrA scoring render. At the
+// old default of 3 a stroke was 0.66 px there and antialiased to mid-grey, with
+// no solid pixel anywhere in the scoring image; at 6 it is 1.3 px and solid.
+// The minimum is the thinnest width that still renders as ink rather than haze.
+export const pencilWidth = { min: 4, max: 16, default: 6 } as const;
 export const eraserWidth = { min: 4, max: 64, default: 24 } as const;
 
 // A stroke longer than this is almost certainly an agent dumping a whole

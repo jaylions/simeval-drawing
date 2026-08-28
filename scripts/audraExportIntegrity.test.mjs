@@ -41,13 +41,13 @@ function build(actorType, actorId) {
   });
   const base = { sessionId: "session-1", trialId: "trial-1", stimulusId, actorType, actorId };
   const steps = [
-    { eventType: "draw_stroke", payload: { tool: "pencil", strokeId: `${actorType}-1`, width: 3,
+    { eventType: "draw_stroke", payload: { tool: "pencil", strokeId: `${actorType}-1`, width: 6,
       points: [{ x: 100, y: 100 }, { x: 300, y: 400 }, { x: 500, y: 120 }] } },
-    { eventType: "draw_stroke", payload: { tool: "pencil", strokeId: `${actorType}-2`, width: 3,
+    { eventType: "draw_stroke", payload: { tool: "pencil", strokeId: `${actorType}-2`, width: 6,
       points: [{ x: 600, y: 600 }, { x: 800, y: 600 }] } },
     { eventType: "erase_stroke", payload: { tool: "eraser", strokeId: `${actorType}-e1`, width: 40,
       points: [{ x: 700, y: 560 }, { x: 700, y: 640 }] } },
-    { eventType: "draw_stroke", payload: { tool: "pencil", strokeId: `${actorType}-3`, width: 3,
+    { eventType: "draw_stroke", payload: { tool: "pencil", strokeId: `${actorType}-3`, width: 6,
       points: [{ x: 200, y: 800 }, { x: 400, y: 800 }] } },
     { eventType: "undo", payload: {} },
     { eventType: "description_update", payload: { description: "a bridge over a canyon" } },
@@ -207,7 +207,7 @@ assert.equal(summarizeActions(normalizeActions(agent)).meanGestureDurationMs, nu
   const result = applyEvent(state, {
     sessionId: "s", trialId: "t", stimulusId, actorType: "human", actorId: "p002",
     timestampMs: 900, eventType: "draw_stroke",
-    payload: { tool: "pencil", strokeId: "h1", width: 3, points: [
+    payload: { tool: "pencil", strokeId: "h1", width: 6, points: [
       { x: 10, y: 10, tMs: 400, pressure: 0.4 },
       { x: 60, y: 60, tMs: 900, pressure: 0.6 }
     ] }
@@ -238,7 +238,7 @@ assert.ok(!replayHtml.slice(payloadStart, payloadEnd).includes("</"),
   });
   const base = { sessionId: "s", trialId: "t", stimulusId, actorType: "human", actorId: "p003" };
   state = applyEvent(state, { ...base, timestampMs: 1, eventType: "draw_stroke",
-    payload: { tool: "pencil", strokeId: "h1", width: 3, points: [{ x: 1, y: 1 }, { x: 9, y: 9 }] } }).state;
+    payload: { tool: "pencil", strokeId: "h1", width: 6, points: [{ x: 1, y: 1 }, { x: 9, y: 9 }] } }).state;
   state = applyEvent(state, { ...base, timestampMs: 2, eventType: "description_update",
     payload: { description: "</script><img src=x onerror=alert(1)>" } }).state;
   const html = fileMap(buildTextFiles(context(state)))["replay.html"];

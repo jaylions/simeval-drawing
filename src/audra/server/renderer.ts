@@ -5,6 +5,7 @@ import { canonicalArtboard } from "../artboard";
 import { deriveScene, type AudraTrialState } from "../reducer";
 import type { Stimulus } from "../stimulus";
 import { sceneToSvg, svgDeclaredSize, svgInnerMarkup, type BackgroundEmbed } from "../svg";
+import { encodeRgbPng, parseHexColor } from "./png";
 
 /**
  * Headless rasterizer for agent observations and exports.
@@ -66,12 +67,18 @@ export function trialToSvg(state: AudraTrialState, stimulus: Stimulus, publicDir
 }
 
 export function renderSvgToPng(svg: string, size: number) {
-  return new Resvg(svg, {
+  const rendered = new Resvg(svg, {
     fitTo: { mode: "width", value: size },
     background: canonicalArtboard.backgroundColor
-  })
-    .render()
-    .asPng();
+  }).render();
+  // resvg emits RGBA. AuDrA's preprocessing inverts with PIL, which rejects a
+  // 4-channel image, so scoring inputs are flattened to RGB here.
+  return encodeRgbPng(
+    rendered.pixels,
+    rendered.width,
+    rendered.height,
+    parseHexColor(canonicalArtboard.backgroundColor)
+  );
 }
 
 export function renderTrialToPng(
