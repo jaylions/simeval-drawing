@@ -21,6 +21,50 @@ function toCoordinate(value) {
   return null;
 }
 
+/**
+ * Pulls the model's reasoning out of one reply.
+ *
+ * Three channels, because open-weight servers expose thinking differently:
+ *   - `reasoning_content` on the message (vLLM with --reasoning-parser, and
+ *     DeepSeek-style APIs)
+ *   - <think>...</think> spans inside the content (Qwen3 and friends when the
+ *     parser is off, so the tags arrive verbatim)
+ *   - a `thought` field the prompt asks for, which is all a non-reasoning model
+ *     such as Gemma or InternVL can give
+ *
+ * The trace is process data about the actor, like a human think-aloud. It is
+ * kept out of the canvas event log and out of every exported image.
+ */
+export function extractReasoning(content, message = {}) {
+  const thinkBlocks = [];
+  const pattern = /<(think|thinking|reasoning)>([\s\S]*?)<\/\1>/gi;
+  let match;
+  while ((match = pattern.exec(content ?? "")) != null) {
+    const text = match[2].trim();
+    if (text) thinkBlocks.push(text);
+  }
+  const reasoningContent =
+    typeof message.reasoning_content === "string" && message.reasoning_content.trim()
+      ? message.reasoning_content.trim()
+      : typeof message.reasoning === "string" && message.reasoning.trim()
+        ? message.reasoning.trim()
+        : null;
+  return {
+    reasoningContent,
+    thinkBlocks,
+    // Where the trace came from, so a mixed-model dataset stays interpretable.
+    channels: [
+      reasoningContent ? "reasoning_content" : null,
+      thinkBlocks.length > 0 ? "think_tags" : null
+    ].filter(Boolean)
+  };
+}
+
+/** Removes think spans so they are never mistaken for the tool call itself. */
+export function stripThinkTags(content) {
+  return (content ?? "").replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, "").trim();
+}
+
 export function extractToolCall(text) {
   const repairs = [];
   let candidate = text.trim();
@@ -52,6 +96,12 @@ export function extractToolCall(text) {
   tool = tool.trim();
 
   const call = { tool };
+
+  // The prompted rationale. Non-reasoning models have no other channel, so it
+  // is read from several key names and kept beside the call rather than in it.
+  const thought = parsed.thought ?? parsed.reasoning ?? parsed.rationale ?? parsed.explanation;
+  const promptedThought = typeof thought === "string" && thought.trim() ? thought.trim() : null;
+  if (promptedThought && parsed.thought == null) repairs.push("aliased_thought_key");
   if (tool === "set_description") {
     const text = parsed.text ?? parsed.description ?? parsed.arguments?.text;
     if (parsed.text == null && text != null) repairs.push("aliased_text_key");
@@ -92,5 +142,5 @@ export function extractToolCall(text) {
     const width = parsed.width ?? parsed.arguments?.width;
     if (typeof width === "number" && Number.isFinite(width)) call.width = width;
   }
-  return { ok: true, call, repairs };
+  return { ok: true, call, repairs, promptedThought };
 }

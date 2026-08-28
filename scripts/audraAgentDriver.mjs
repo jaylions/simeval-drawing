@@ -10,7 +10,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { extractToolCall } from "./audraToolCallParser.mjs";
+import { extractReasoning, extractToolCall, stripThinkTags } from "./audraToolCallParser.mjs";
 
 const defaults = {
   base: "http://127.0.0.1:5173",
@@ -27,7 +27,8 @@ const defaults = {
   seed: null,
   apiKey: null,
   out: null,
-  checkpoint: null
+  checkpoint: null,
+  export: "true"
 };
 
 function parseArgs(argv) {
@@ -52,12 +53,14 @@ Your task: use ALL four starting lines as part of ONE creative drawing. Be as cr
 
 Coordinates: x from 0 (left) to 1024 (right), y from 0 (top) to 1024 (bottom).
 
-Reply with exactly ONE JSON object and nothing else. Choose one:
-{"tool":"draw_stroke","points":[[x,y],[x,y],...],"width":4}
-{"tool":"erase_stroke","points":[[x,y],[x,y],...],"width":24}
-{"tool":"undo_last"}
-{"tool":"set_description","text":"what you drew"}
-{"tool":"submit_task"}
+Reply with exactly ONE JSON object. Always include "thought": one or two
+sentences saying what you see and why you chose this action.
+
+{"thought":"...","tool":"draw_stroke","points":[[x,y],[x,y],...],"width":4}
+{"thought":"...","tool":"erase_stroke","points":[[x,y],[x,y],...],"width":24}
+{"thought":"...","tool":"undo_last"}
+{"thought":"...","tool":"set_description","text":"what you drew"}
+{"thought":"...","tool":"submit_task"}
 
 Rules:
 - draw_stroke needs at least 2 points. Long curves need many points.
@@ -97,21 +100,30 @@ async function callModel(options, imageBase64, historyText) {
 
   const headers = { "Content-Type": "application/json" };
   if (options.apiKey) headers.Authorization = `Bearer ${options.apiKey}`;
+  const startedAt = Date.now();
   const response = await fetch(options.endpoint, { method: "POST", headers, body: JSON.stringify(body) });
   if (!response.ok) throw new Error(`Model server returned ${response.status}: ${await response.text()}`);
   const payload = await response.json();
-  return payload.choices?.[0]?.message?.content ?? "";
+  const choice = payload.choices?.[0] ?? {};
+  const message = choice.message ?? {};
+  return {
+    content: message.content ?? "",
+    message,
+    finishReason: choice.finish_reason ?? null,
+    usage: payload.usage ?? null,
+    latencyMs: Date.now() - startedAt
+  };
 }
 
 /** A fixed trajectory used to verify the loop without a model. */
 const mockScript = [
-  { tool: "draw_stroke", points: [[187, 259], [150, 430], [250, 540], [413, 470], [413, 259]], width: 4 },
-  { tool: "draw_stroke", points: [[640, 200], [610, 430], [880, 430], [880, 290]], width: 4 },
-  { tool: "draw_stroke", points: [[170, 690], [170, 800], [470, 800], [470, 690]], width: 4 },
-  { tool: "draw_stroke", points: [[700, 820], [660, 900], [860, 900], [840, 860]], width: 4 },
-  { tool: "erase_stroke", points: [[300, 800], [340, 800]], width: 24 },
-  { tool: "set_description", text: "four lanterns floating above a river" },
-  { tool: "submit_task" }
+  { thought: "The broken arch reads as the top of a lantern; I will close its body.", tool: "draw_stroke", points: [[187, 259], [150, 430], [250, 540], [413, 470], [413, 259]], width: 4 },
+  { thought: "The zigzag can be a second lantern with a folded paper shade.", tool: "draw_stroke", points: [[640, 200], [610, 430], [880, 430], [880, 290]], width: 4 },
+  { thought: "Boxing the wave turns it into water inside a tank.", tool: "draw_stroke", points: [[170, 690], [170, 800], [470, 800], [470, 690]], width: 4 },
+  { thought: "The hook becomes a small creature curled on the ground.", tool: "draw_stroke", points: [[700, 820], [660, 900], [860, 900], [840, 860]], width: 4 },
+  { thought: "The tank base is too heavy; I will open a gap in it.", tool: "erase_stroke", points: [[300, 800], [340, 800]], width: 24 },
+  { thought: "Naming the scene now that all four starting lines are used.", tool: "set_description", text: "four lanterns floating above a river" },
+  { thought: "Every starting line is part of the drawing, so I am done.", tool: "submit_task" }
 ];
 
 async function main() {
@@ -155,22 +167,39 @@ async function main() {
     let call;
     let rawReply = null;
     let repairs = [];
+    let trace = null;
 
     if (options.driver === "mock") {
       const scripted = mockScript[Math.min(turn - 1, mockScript.length - 1)];
-      call = JSON.parse(JSON.stringify(scripted));
+      // `thought` is trace data, not a tool argument; the server rejects any
+      // field outside the canonical surface, mock runs included.
+      const { thought, ...toolCall } = JSON.parse(JSON.stringify(scripted));
+      call = toolCall;
       if (Array.isArray(call.points)) call.points = call.points.map(([x, y]) => ({ x, y }));
+      trace = { promptedThought: thought ?? null, reasoningContent: null, thinkBlocks: [], channels: [] };
     } else {
       const historyText = history.length === 0
         ? "You have not drawn anything yet."
         : `Your actions so far:\n${history.join("\n")}`;
-      rawReply = await callModel(options, image, historyText);
-      const extracted = extractToolCall(rawReply);
+      const reply = await callModel(options, image, historyText);
+      rawReply = reply.content;
+      const reasoning = extractReasoning(reply.content, reply.message);
+      // Think spans are reasoning, not the answer; the tool call is read from
+      // what remains so a stray brace inside a <think> block cannot be parsed
+      // as the action.
+      const extracted = extractToolCall(stripThinkTags(reply.content));
+      trace = {
+        ...reasoning,
+        promptedThought: extracted.promptedThought ?? null,
+        finishReason: reply.finishReason,
+        usage: reply.usage,
+        latencyMs: reply.latencyMs
+      };
       if (!extracted.ok) {
         parseFailures += 1;
         parseRepairs += extracted.repairs?.length ?? 0;
         history.push(`turn ${turn}: unreadable reply (${extracted.error})`);
-        turns.push({ turn, rawReply, parseError: extracted.error, accepted: false });
+        turns.push({ turn, rawReply, reasoning: trace, parseError: extracted.error, accepted: false });
         console.log(`  turn ${turn}: unparseable reply - ${extracted.error}`);
         continue;
       }
@@ -190,6 +219,7 @@ async function main() {
     turns.push({
       turn,
       rawReply,
+      reasoning: trace,
       call,
       repairs,
       accepted,
@@ -197,7 +227,9 @@ async function main() {
       code: accepted ? null : result.payload.code,
       revision: accepted ? result.payload.revision : null
     });
+    const thought = trace?.promptedThought ?? trace?.thinkBlocks?.[0] ?? null;
     console.log(`  turn ${turn}: ${label} -> ${accepted ? "ok" : `REJECTED (${result.payload.code})`}`);
+    if (thought) console.log(`           thought: ${thought.replace(/\s+/g, " ").slice(0, 110)}`);
 
     if (accepted && call.tool === "submit_task") submitted = true;
   }
@@ -205,6 +237,21 @@ async function main() {
   const run = await fetch(
     `${options.base}/api/audra/_host/run?trialId=${trialId}&token=${renderToken}`
   ).then(response => response.json());
+
+  let exported = null;
+  if (options.export !== "false") {
+    const result = await postJson(`${options.base}/api/audra/export`, {
+      trialId,
+      token: renderToken,
+      endedAt: new Date().toISOString()
+    });
+    if (result.payload.ok) {
+      exported = result.payload;
+      console.log(`bundle   -> ${result.payload.directory}`);
+    } else {
+      console.log(`export failed: ${result.payload.error}`);
+    }
+  }
 
   const summary = {
     trialId,
@@ -215,7 +262,13 @@ async function main() {
     // Driver leniency is assistance a human participant does not receive, so it
     // is reported rather than hidden.
     driverAssistance: { parseRepairs, parseFailures },
+    reasoningTrace: {
+      turnsWithThought: turns.filter(entry => entry.reasoning?.promptedThought).length,
+      turnsWithReasoningContent: turns.filter(entry => entry.reasoning?.reasoningContent).length,
+      turnsWithThinkTags: turns.filter(entry => (entry.reasoning?.thinkBlocks?.length ?? 0) > 0).length
+    },
     options: { ...options, apiKey: options.apiKey ? "[set]" : null },
+    exportBundle: exported,
     serverRun: run.ok ? { agentRun: run.agentRun, runStats: run.runStats, rejections: run.rejections } : null,
     turns
   };
@@ -224,13 +277,40 @@ async function main() {
     mkdirSync(options.out, { recursive: true });
     const file = join(options.out, `${trialId}.run.json`);
     writeFileSync(file, JSON.stringify(summary, null, 2));
-    console.log(`run log -> ${file}`);
+
+    // The reasoning trace is written separately, one record per turn, so it can
+    // be analysed without the run log and never travels with a scoring image.
+    const traceFile = join(options.out, `${trialId}.reasoning.jsonl`);
+    const records = turns.map(entry => ({
+      trialId,
+      actorType: "agent",
+      actorId: options.actorId,
+      model: summary.serverRun?.agentRun?.model ?? options.model,
+      turn: entry.turn,
+      tool: entry.call?.tool ?? null,
+      accepted: entry.accepted,
+      revision: entry.revision ?? null,
+      promptedThought: entry.reasoning?.promptedThought ?? null,
+      reasoningContent: entry.reasoning?.reasoningContent ?? null,
+      thinkBlocks: entry.reasoning?.thinkBlocks ?? [],
+      channels: entry.reasoning?.channels ?? [],
+      finishReason: entry.reasoning?.finishReason ?? null,
+      usage: entry.reasoning?.usage ?? null,
+      latencyMs: entry.reasoning?.latencyMs ?? null,
+      rawReply: entry.rawReply
+    }));
+    writeFileSync(traceFile, records.map(record => JSON.stringify(record)).join("\n") + "\n");
+    console.log(`run log  -> ${file}`);
+    console.log(`reasoning -> ${traceFile}`);
   }
 
   console.log(
     `\n${submitted ? "submitted" : "NOT submitted"} after ${turns.length} turns · ` +
       `accepted ${run.runStats?.acceptedCount ?? "?"} · rejected ${run.runStats?.rejectedCount ?? "?"} · ` +
-      `parse repairs ${parseRepairs} · parse failures ${parseFailures}`
+      `parse repairs ${parseRepairs} · parse failures ${parseFailures}\n` +
+      `reasoning captured on ${summary.reasoningTrace.turnsWithThought} turns (thought), ` +
+      `${summary.reasoningTrace.turnsWithReasoningContent} (reasoning_content), ` +
+      `${summary.reasoningTrace.turnsWithThinkTags} (think tags)`
   );
   if (!submitted) process.exitCode = 1;
 }

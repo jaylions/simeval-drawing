@@ -32,6 +32,7 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
   const [startedAtEpochMs] = useState(() => Date.now());
   const [background, setBackground] = useState<HTMLImageElement | null>(null);
   const [backgroundError, setBackgroundError] = useState<string | null>(null);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
 
   const trial = useAudraTrial({
     sessionId,
@@ -223,7 +224,7 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
     setPhase("confirming");
   }, [commitDescription, descriptionDraft, trial.hasDrawingAttempt]);
 
-  const confirmSubmit = useCallback(() => {
+  const confirmSubmit = useCallback(async () => {
     const result = trial.dispatch(controlDraft("submit", { ...context, timestampMs: trial.elapsedMs() }));
     if (!result.ok) {
       setNotice(result.error);
@@ -232,7 +233,31 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
     }
     setPhase("submitted");
     onSubmitted?.({ trialId });
-  }, [context, onSubmitted, trial, trialId]);
+
+    // The trial is already final at this point. Handing the log to the server
+    // writes the export bundle; it cannot alter the drawing, and a failure here
+    // leaves the submitted state untouched.
+    try {
+      const response = await fetch("/api/audra/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          trialId,
+          stimulusId: stimulus.stimulusId,
+          actorType: "human",
+          actorId,
+          events: result.state.events,
+          startedAt: new Date(startedAtEpochMs).toISOString(),
+          endedAt: new Date().toISOString()
+        })
+      });
+      const payload = await response.json();
+      setExportStatus(payload.ok ? `Saved to ${payload.baseName}` : `Export failed: ${payload.error}`);
+    } catch (error) {
+      setExportStatus(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [actorId, context, onSubmitted, sessionId, startedAtEpochMs, stimulus.stimulusId, trial, trialId]);
 
   if (phase === "instructions") {
     return (
@@ -265,6 +290,7 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
         <section className="audra-instructions">
           <h1>Submitted</h1>
           <p>Thank you. Your drawing has been recorded and can no longer be changed.</p>
+          {exportStatus && <p className="audra-meta">{exportStatus}</p>}
         </section>
       </div>
     );
@@ -326,7 +352,7 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
           <div className="audra-confirm">
             <p>Submit this drawing? It cannot be changed afterwards.</p>
             <div className="audra-confirm-actions">
-              <button className="audra-primary" onClick={confirmSubmit}>
+              <button className="audra-primary" onClick={() => void confirmSubmit()}>
                 Yes, submit
               </button>
               <button className="audra-tool" onClick={() => setPhase("drawing")}>

@@ -108,7 +108,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       // Incomplete-shapes task API. Independent of the Excalidraw session endpoints.
-      audraTaskPlugin(),
+      audraTaskPlugin({ appVersion: packageVersion, appCommit }),
       {
         name: "simeval-google-stt",
         configureServer(server) {

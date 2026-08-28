@@ -14,7 +14,8 @@
     "test:agent-transforms": "node scripts/agentTransformIntegrity.test.mjs",
     "test:audra": "node scripts/audraCanonicalIntegrity.test.mjs",
     "test:audra-driver": "node scripts/audraDriverParserIntegrity.test.mjs",
-    "audra:agent": "node scripts/audraAgentDriver.mjs"
+    "audra:agent": "node scripts/audraAgentDriver.mjs",
+    "test:audra-export": "node scripts/audraExportIntegrity.test.mjs"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.17.0",
@@ -29,6 +30,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.2.0",
     "typescript": "^5.5.0",
-    "vite": "^4.5.0"
+    "vite": "^4.5.0",
+    "esbuild": "^0.18.20"
   }
 }

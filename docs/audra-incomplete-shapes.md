@@ -52,10 +52,14 @@ makes replay and the export bundle deterministic.
 | `src/audra/geometry.ts` | Polyline densification and distance helpers |
 | `src/audra/render.ts` | Layered browser canvas renderer (human UI) |
 | `src/audra/svg.ts` | Canonical scene → SVG, the shared geometry definition |
+| `src/audra/actions.ts` | Normalized action chunks and process summary |
+| `src/audra/export.ts` | Bundle builder: events, actions, SVG, session, replay |
+| `src/audra/replayRuntime.ts` | Replay runtime inlined into `replay.html` |
 | `src/audra/stimulus.ts` | `Stimulus` interface and registry |
 | `src/audra/humanInput.ts` | Pointer samples → canonical events |
 | `src/audra/agentTools.ts` | Agent tool surface → canonical events |
 | `src/audra/server/renderer.ts` | Headless SVG → PNG rasterizer (resvg) |
+| `src/audra/server/exportBundle.ts` | Writes a bundle to disk; replays posted logs |
 | `src/audra/server/` | Authoritative trial registry and HTTP endpoints |
 | `scripts/audraAgentDriver.mjs` | Model-agnostic agent driver, plus a mock trajectory |
 | `scripts/audraToolCallParser.mjs` | Tolerant reader for small-model replies |
@@ -312,6 +316,7 @@ These are real and should be reported alongside any comparison.
 ```
 npm run test:audra          # canonical layer
 npm run test:audra-driver   # tolerant reply parser
+npm run test:audra-export   # bundle contents and determinism
 ```
 
 `scripts/audraCanonicalIntegrity.test.mjs` covers: human and agent dispatch of
@@ -326,20 +331,116 @@ the shapes small models actually emit, including the cases that must stay
 failures — a reply with no JSON, empty or non-numeric points, and values like
 `null`, `true`, or `""` that plain `Number()` would silently turn into `0`.
 
+`scripts/audraExportIntegrity.test.mjs` covers export determinism, event-log
+round-tripping, human and agent runs of the same actions exporting an identical
+canvas, the scoring image carrying no text/actor/task leakage, `session.json`
+recording the actor without it reaching the image, action-chunk correctness
+including undo attribution, and `replay.html` surviving a description that tries
+to close its own script tag.
+
 TypeScript modules are bundled for the test with `scripts/loadTsBundle.mjs`
 (esbuild), because the audra modules import each other at runtime rather than
 type-only.
 
+## Reasoning trace
+
+The model's reasoning is the point of an agent run, so the driver asks for it
+and captures it from every channel an open-weight server might use:
+
+| Channel | Where it comes from |
+| --- | --- |
+| `reasoning_content` | vLLM with `--reasoning-parser`, DeepSeek-style APIs |
+| `<think>…</think>` | Qwen3 and similar when the reasoning parser is off |
+| `thought` | A field the prompt requests; the only channel a non-reasoning model such as Gemma or InternVL has |
+
+Think spans are stripped before the tool call is read, so a stray brace inside
+reasoning can never be parsed as the action.
+
+Each turn is written to `<trialId>.reasoning.jsonl`:
+
+```jsonc
+{
+  "trialId": "trial-…", "actorType": "agent", "actorId": "qwen3vl2b-run1",
+  "model": "Qwen3-VL-2B-Instruct", "turn": 3,
+  "tool": "draw_stroke", "accepted": true, "revision": 3,
+  "promptedThought": "The zigzag can be a folded paper shade.",
+  "reasoningContent": null, "thinkBlocks": [], "channels": [],
+  "finishReason": "stop", "usage": { "prompt_tokens": 1204, "completion_tokens": 88 },
+  "latencyMs": 1830, "rawReply": "…"
+}
+```
+
+The trace is **process data about the actor**, like a human think-aloud. It is
+kept out of the canonical event log and out of every exported image, so it can
+never reach a scoring pipeline.
+
+> **The human side of this is not built.** Agents currently produce a reasoning
+> trace and humans produce none, which makes process comparison one-sided. The
+> Excalidraw app already has think-aloud audio capture with Google STT
+> (`src/App.tsx`); wiring an equivalent into this mode is outstanding work, and
+> until it exists any human-versus-agent process claim rests on timing and
+> action data alone.
+
+## Export bundle
+
+Exports are written server-side for both actors, so a lab machine ends a
+session with the files already on disk rather than in a browser download.
+
+```
+POST /api/audra/export
+  agent:  {trialId, token}                       - exported from server state
+  human:  {sessionId, trialId, stimulusId,       - the browser posts its log
+           actorType, actorId, events, startedAt, endedAt}
+```
+
+A posted human log is **replayed through the reducer before anything is
+written**. That is not a formality: it re-runs the same validation the events
+originally passed, so a log that cannot be reproduced — a tampered
+`eventIndex`, an out-of-bounds point — is refused rather than silently
+exported.
+
+Bundles land in `exports/<baseName>/` (override with the plugin's `exportDir`):
+
+| File | Contents |
+| --- | --- |
+| `events.jsonl` | Complete ordered raw event log |
+| `actions.json` | Normalized action chunks plus a process summary |
+| `final_canvas.svg` | Canonical vector state; both PNGs render from this |
+| `final_canvas_archival.png` | 2048 px archival raster |
+| `final_canvas_score.png` | 224 px AuDrA score input |
+| `description.txt` | The participant's or agent's answer |
+| `session.json` | Actor, task configuration, stimulus, timing, versions, export profile, agent run metadata |
+| `replay.html` | Self-contained deterministic replay |
+
+### Action chunks
+
+One record per event, enriched with process measures and the canvas state that
+resulted from it: `pointCount`, `pathLengthUnits`, `boundingBox`,
+`gestureDurationMs`, `meanPressure`, `sincePreviousMs`, `strokeCountAfter`,
+`inkLengthAfterUnits`, plus `undone` and `undoneEventIndex` so revisions are
+legible without replaying.
+
+Fields an actor cannot supply are `null`, never filled with a plausible number.
+`gestureDurationMs` and `meanPressure` are always null for agents, because a
+tool call has no gesture and no pressure.
+
+### AuDrA scoring profile
+
+The score input is rendered **directly from the canonical SVG at 224 px**, not
+downsampled from the archival PNG, so no intermediate rounding enters the
+scored image. Both rasters are plain RGB PNG on white with no UI chrome,
+cursor, grid, label, toolbar, or embedded metadata, and the actor identity
+appears only in `session.json`. Dimensions, scaling, and preprocessing choices
+are recorded in `session.json.exportProfile`.
+
+### Replay
+
+`replay.html` embeds the event log and a bundled copy of the **canonical
+reducer and SVG serializer** — not a second implementation — so an exported
+replay cannot drift from the reducer that produced the trial. It scrubs and
+plays through every event boundary and needs no network access.
+
 ## Not yet implemented
 
-Export and replay are still to come:
-
-- `events.jsonl`, `actions.json`, `final_canvas.png` / `.svg`, `description.txt`,
-  `session.json` (the canonical SVG and the PNG rasterizer both already exist in
-  `svg.ts` and `server/renderer.ts`; only the bundling is missing)
-- the AuDrA-compatible export profile — archival PNG plus a deterministic
-  resized score-input PNG, with dimensions, scaling, and preprocessing recorded
-  in metadata
-- the `replay.html` route
-- tests for export determinism and for the scoring PNG containing only the
-  drawing and starter contour on white
+- Human think-aloud capture in this mode (see the reasoning-trace note above).
+- The official CAP/MTCI stimulus set.

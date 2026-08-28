@@ -1,6 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { join } from "node:path";
 import type { Plugin } from "vite";
+import type { AudraEvent } from "../events";
 import { developmentStimulus, stimulusById } from "../stimulus";
+import { replayPostedLog, writeExportBundle } from "./exportBundle";
 import { renderTrialToPng } from "./renderer";
 import {
   agentContract,
@@ -25,13 +28,17 @@ const maxBodyBytes = 8 * 1024 * 1024;
  *                       response. These carry raw state and must not be exposed
  *                       to the agent's network namespace.
  */
-export function audraTaskPlugin(): Plugin {
+export type AudraPluginOptions = { appVersion: string; appCommit: string; exportDir?: string };
+
+export function audraTaskPlugin(options: AudraPluginOptions): Plugin {
   return {
     name: "simeval-audra-task",
     configureServer(server) {
       // Stimulus assets live under Vite's public directory; the renderer reads
       // them from disk rather than over HTTP.
       const publicDir = server.config.publicDir;
+      const projectRoot = server.config.root;
+      const exportDir = options.exportDir ?? join(projectRoot, "exports");
       server.middlewares.use("/api/audra", async (request, response) => {
         response.setHeader("Content-Type", "application/json");
         const url = new URL(request.url ?? "/", "http://localhost");
@@ -44,6 +51,14 @@ export function audraTaskPlugin(): Plugin {
           if (route === "/_host/state" && request.method === "GET") return handleHostState(url, response);
           if (route === "/_host/frame" && request.method === "POST") return await handleFrame(request, response);
           if (route === "/_host/run" && request.method === "GET") return handleHostRun(url, response);
+          if (route === "/export" && request.method === "POST") {
+            return await handleExport(request, response, {
+              ...options,
+              projectRoot,
+              publicDir,
+              exportDir
+            });
+          }
           send(response, 404, { ok: false, error: `Unknown endpoint: ${route}` });
         } catch (error) {
           send(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -229,4 +244,80 @@ function readJson(request: IncomingMessage) {
 function send(response: ServerResponse, statusCode: number, payload: unknown) {
   response.statusCode = statusCode;
   response.end(JSON.stringify(payload));
+}
+
+type ExportContext = AudraPluginOptions & {
+  projectRoot: string;
+  publicDir: string;
+  exportDir: string;
+};
+
+/**
+ * Writes the export bundle for one trial.
+ *
+ * Agent trials are exported from authoritative server state. Human trials post
+ * their event log, which is replayed through the reducer first: an unreproducible
+ * log is refused rather than exported.
+ */
+async function handleExport(request: IncomingMessage, response: ServerResponse, context: ExportContext) {
+  const body = await readJson(request);
+  const startedAt = typeof body.startedAt === "string" ? body.startedAt : new Date().toISOString();
+  const endedAt = typeof body.endedAt === "string" ? body.endedAt : new Date().toISOString();
+
+  let request_: Parameters<typeof writeExportBundle>[0];
+
+  if (typeof body.trialId === "string" && !Array.isArray(body.events)) {
+    const record = getTrial(body.trialId);
+    if (!record) return send(response, 404, { ok: false, error: "Unknown trial." });
+    if (body.token !== record.renderToken) {
+      return send(response, 403, { ok: false, error: "Invalid render token." });
+    }
+    request_ = {
+      state: record.state,
+      stimulus: record.stimulus,
+      startedAt: new Date(record.createdAtEpochMs).toISOString(),
+      endedAt,
+      appVersion: context.appVersion,
+      appCommit: context.appCommit,
+      agentRun: record.agentRun as unknown as Record<string, unknown>,
+      runStats: record.runStats as unknown as Record<string, unknown>,
+      rejections: record.rejections
+    };
+  } else {
+    const stimulus = stimulusById(typeof body.stimulusId === "string" ? body.stimulusId : "");
+    if (!stimulus) return send(response, 400, { ok: false, error: "Unknown or missing stimulusId." });
+    if (!Array.isArray(body.events)) return send(response, 400, { ok: false, error: "events array is required." });
+    for (const field of ["sessionId", "trialId", "actorId"]) {
+      if (typeof body[field] !== "string" || body[field].length === 0) {
+        return send(response, 400, { ok: false, error: `${field} is required.` });
+      }
+    }
+    let state;
+    try {
+      state = replayPostedLog({
+        sessionId: body.sessionId as string,
+        trialId: body.trialId as string,
+        stimulusId: stimulus.stimulusId,
+        actorType: body.actorType === "agent" ? "agent" : "human",
+        actorId: body.actorId as string,
+        events: body.events as AudraEvent[]
+      });
+    } catch (error) {
+      return send(response, 400, {
+        ok: false,
+        error: `The posted event log could not be replayed: ${(error as Error).message}`
+      });
+    }
+    request_ = {
+      state,
+      stimulus,
+      startedAt,
+      endedAt,
+      appVersion: context.appVersion,
+      appCommit: context.appCommit
+    };
+  }
+
+  const result = await writeExportBundle(request_, context.projectRoot, context.publicDir, context.exportDir);
+  send(response, 200, { ok: true, ...result });
 }
