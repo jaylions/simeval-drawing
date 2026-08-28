@@ -53,6 +53,8 @@ makes replay and the export bundle deterministic.
 | `src/audra/render.ts` | Layered browser canvas renderer (human UI) |
 | `src/audra/svg.ts` | Canonical scene → SVG, the shared geometry definition |
 | `src/audra/actions.ts` | Normalized action chunks and process summary |
+| `src/audra/thinkAloud.ts` | Human think-aloud types, summary, validation |
+| `src/audra/useThinkAloud.ts` | Microphone capture and chunked transcription |
 | `src/audra/export.ts` | Bundle builder: events, actions, SVG, session, replay |
 | `src/audra/replayRuntime.ts` | Replay runtime inlined into `replay.html` |
 | `src/audra/stimulus.ts` | `Stimulus` interface and registry |
@@ -302,6 +304,10 @@ These are real and should be reported alongside any comparison.
 - **Driver leniency.** The tolerant reply parser gives agents retries and
   repairs that a human's pointer does not need. `driverAssistance` and the
   server's `rejections` list quantify it; report both.
+- **Trace elicitation.** Humans are asked to speak; agents are asked for a
+  `thought` field. Both are prompted self-reports produced while acting, but
+  they are not the same instrument, and neither is a record of internal
+  process.
 - **Prompt scaffolding.** Agents receive the coordinate system and an output
   format in text. This is the information a human gets from simply seeing the
   canvas, but it is not the *same* information, and prompt wording is a real
@@ -374,12 +380,40 @@ The trace is **process data about the actor**, like a human think-aloud. It is
 kept out of the canonical event log and out of every exported image, so it can
 never reach a scoring pipeline.
 
-> **The human side of this is not built.** Agents currently produce a reasoning
-> trace and humans produce none, which makes process comparison one-sided. The
-> Excalidraw app already has think-aloud audio capture with Google STT
-> (`src/App.tsx`); wiring an equivalent into this mode is outstanding work, and
-> until it exists any human-versus-agent process claim rests on timing and
-> action data alone.
+## Human think-aloud
+
+The human counterpart to the agent reasoning trace. Participants are asked to
+think aloud; audio is captured for the whole trial and, in parallel, split into
+10-second chunks that are transcribed independently through the existing
+`/api/google-stt-transcribe` endpoint.
+
+Chunks are transcribed independently so one failed request costs one chunk
+rather than the whole trace, and a failure is kept with its reason and its
+audio rather than dropped. Each chunk records `revisionAtStart` and
+`revisionAtEnd`, which is what lets a spoken remark be aligned with the marks
+it was about — the same role the agent's `revision` field plays in
+`reasoning.jsonl`.
+
+Exported as `thinkaloud.jsonl` plus `thinkaloud_audio.webm`, with a summary and
+validation errors in `session.json`.
+
+**A microphone failure never costs a participant the trial.** Permission is
+requested at the instruction screen; if it is refused or unavailable, the error
+is shown and the trial proceeds without audio.
+
+### Trace symmetry
+
+| | Human | Agent |
+| --- | --- | --- |
+| Trace file | `thinkaloud.jsonl` | `reasoning.jsonl` |
+| Unit | 10-second audio chunk | one turn |
+| Canvas anchor | `revisionAtStart` / `revisionAtEnd` | `revision` |
+| Content | transcript plus word timings | prompted thought, `reasoning_content`, think spans |
+| In the event log? | No | No |
+| In any exported image? | No | No |
+
+Both traces are process data about the actor and sit beside the canonical event
+log, never inside it, so neither can reach a scoring pipeline.
 
 ## Export bundle
 
@@ -409,7 +443,9 @@ Bundles land in `exports/<baseName>/` (override with the plugin's `exportDir`):
 | `final_canvas_archival.png` | 2048 px archival raster |
 | `final_canvas_score.png` | 224 px AuDrA score input |
 | `description.txt` | The participant's or agent's answer |
-| `session.json` | Actor, task configuration, stimulus, timing, versions, export profile, agent run metadata |
+| `session.json` | Actor, task configuration, stimulus, timing, versions, export profile, agent run metadata, think-aloud summary |
+| `thinkaloud.jsonl` | Human think-aloud transcript chunks (human trials with audio) |
+| `thinkaloud_audio.webm` | Archival think-aloud audio (human trials with audio) |
 | `replay.html` | Self-contained deterministic replay |
 
 ### Action chunks
@@ -442,5 +478,4 @@ plays through every event boundary and needs no network access.
 
 ## Not yet implemented
 
-- Human think-aloud capture in this mode (see the reasoning-trace note above).
 - The official CAP/MTCI stimulus set.

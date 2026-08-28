@@ -12,8 +12,25 @@ const {
   normalizeActions,
   parseEventsJsonl,
   replay,
-  summarizeActions
+  summarizeActions,
+  summarizeThinkAloud,
+  validateThinkAloudChunks
 } = audra;
+
+function thinkAloudChunk(sequence, overrides = {}) {
+  return {
+    sessionId: "session-1", trialId: "trial-1", actorType: "human", actorId: "p001",
+    sequence, chunkIndex: sequence + 1,
+    chunkStartedAtMs: sequence * 10000,
+    chunkEndedAtMs: (sequence + 1) * 10000,
+    durationMs: 10000,
+    content: `spoken segment ${sequence}`,
+    transcriptionStatus: "completed",
+    revisionAtStart: sequence, revisionAtEnd: sequence + 1,
+    audio: { mimeType: "audio/webm", byteSize: 4096, languageCode: "ko-KR", success: true, segments: [] },
+    ...overrides
+  };
+}
 
 const stimulusId = developmentStimulus.stimulusId;
 const background = { kind: "svg_fragment", markup: '<path d="M 10 10 L 90 90" stroke="#111111" fill="none"/>' };
@@ -227,6 +244,88 @@ assert.ok(!replayHtml.slice(payloadStart, payloadEnd).includes("</"),
   const html = fileMap(buildTextFiles(context(state)))["replay.html"];
   const start = html.indexOf("__AUDRA_REPLAY__");
   assert.ok(!html.slice(start, html.indexOf("</script>", start)).includes("</script>"));
+}
+
+// ---------------------------------------------------------------------------
+// Human think-aloud is exported beside the event log, never inside it.
+// ---------------------------------------------------------------------------
+
+{
+  const chunks = [thinkAloudChunk(0), thinkAloudChunk(1)];
+  const files = fileMap(buildTextFiles(context(human, {
+    thinkAloud: chunks, audioFileName: "thinkaloud_audio.webm"
+  })));
+
+  assert.ok("thinkaloud.jsonl" in files, "a trial with audio must export a think-aloud trace");
+  const lines = files["thinkaloud.jsonl"].trim().split("\n").map(line => JSON.parse(line));
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].content, "spoken segment 0");
+  // The trace links speech to the canvas state it accompanied.
+  assert.equal(lines[0].revisionAtStart, 0);
+  assert.equal(lines[1].revisionAtEnd, 2);
+
+  // Spoken content must not reach the event log or the scoring image.
+  assert.ok(!files["events.jsonl"].includes("spoken segment"));
+  assert.ok(!files["final_canvas.svg"].includes("spoken segment"));
+  assert.ok(!files["replay.html"].includes("spoken segment"));
+
+  const session = JSON.parse(files["session.json"]);
+  assert.equal(session.thinkAloud.chunkCount, 2);
+  assert.equal(session.thinkAloud.transcribedChunks, 2);
+  assert.equal(session.thinkAloud.audioFileName, "thinkaloud_audio.webm");
+  assert.deepEqual(session.thinkAloud.validationErrors, []);
+
+  // Both actors' process traces sit in the same place in session.json, so a
+  // comparison does not have to special-case one of them.
+  assert.equal(JSON.parse(files["session.json"]).agentRun, null);
+  assert.notEqual(session.thinkAloud, null);
+}
+
+// A trial without audio exports no think-aloud file and reports none.
+{
+  const files = fileMap(buildTextFiles(context(human)));
+  assert.ok(!("thinkaloud.jsonl" in files));
+  assert.equal(JSON.parse(files["session.json"]).thinkAloud, null);
+}
+
+// Validation catches the traces that would silently corrupt an analysis.
+{
+  assert.deepEqual(validateThinkAloudChunks([thinkAloudChunk(0), thinkAloudChunk(1)]), []);
+
+  const outOfOrder = validateThinkAloudChunks([thinkAloudChunk(1), thinkAloudChunk(0)]);
+  assert.ok(outOfOrder.some(error => error.includes("out of order")));
+
+  const stillPending = validateThinkAloudChunks([
+    thinkAloudChunk(0, { transcriptionStatus: "pending" })
+  ]);
+  assert.ok(stillPending.some(error => error.includes("before transcription finished")));
+
+  const overlapping = validateThinkAloudChunks([
+    thinkAloudChunk(0),
+    thinkAloudChunk(1, { chunkStartedAtMs: 5000 })
+  ]);
+  assert.ok(overlapping.some(error => error.includes("overlaps")));
+
+  const silent = validateThinkAloudChunks([thinkAloudChunk(0, {
+    audio: { mimeType: "audio/webm", byteSize: 0, languageCode: "", success: false, segments: [] }
+  })]);
+  assert.ok(silent.some(error => error.includes("no audio")));
+}
+
+// A failed transcription keeps its audio and its reason rather than vanishing.
+{
+  const failed = thinkAloudChunk(0, {
+    content: "",
+    transcriptionStatus: "failed",
+    audio: { mimeType: "audio/webm", byteSize: 4096, languageCode: "", success: false,
+             error: "STT credentials are not configured.", segments: [] }
+  });
+  const summary = summarizeThinkAloud([failed]);
+  assert.equal(summary.failedChunks, 1);
+  assert.equal(summary.transcribedChunks, 0);
+  assert.equal(summary.totalBytes, 4096, "audio is retained even when transcription fails");
+  const files = fileMap(buildTextFiles(context(human, { thinkAloud: [failed] })));
+  assert.ok(files["thinkaloud.jsonl"].includes("STT credentials are not configured."));
 }
 
 console.log("audra export integrity tests passed");

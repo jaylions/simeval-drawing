@@ -13,8 +13,16 @@ import {
 import { loadStimulusImage, renderTrial } from "./render";
 import { descriptionPrompt, taskInstruction, type Stimulus } from "./stimulus";
 import { useAudraTrial } from "./useAudraTrial";
+import { useThinkAloud } from "./useThinkAloud";
 
 type TrialPhase = "instructions" | "drawing" | "confirming" | "submitted";
+
+async function blobToBase64(blob: Blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
 
 export type AudraTaskProps = {
   sessionId: string;
@@ -42,6 +50,20 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
     actorId,
     startedAtEpochMs
   });
+
+  const thinkAloudChunksRef = useRef<unknown[]>([]);
+  const trialStateRef = useRef(trial.state);
+  trialStateRef.current = trial.state;
+
+  const thinkAloud = useThinkAloud({
+    sessionId,
+    trialId,
+    actorId,
+    elapsedMs: trial.elapsedMs,
+    currentRevision: () => trialStateRef.current.revision
+  });
+
+  thinkAloudChunksRef.current = thinkAloud.chunks as unknown[];
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const livePointsRef = useRef<StrokePoint[]>([]);
@@ -238,6 +260,10 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
     // writes the export bundle; it cannot alter the drawing, and a failure here
     // leaves the submitted state untouched.
     try {
+      setExportStatus("Finishing the audio recording…");
+      await thinkAloud.stop();
+      const audio = thinkAloud.audioBlob();
+      setExportStatus("Saving…");
       const response = await fetch("/api/audra/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -249,7 +275,10 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
           actorId,
           events: result.state.events,
           startedAt: new Date(startedAtEpochMs).toISOString(),
-          endedAt: new Date().toISOString()
+          endedAt: new Date().toISOString(),
+          thinkAloud: thinkAloudChunksRef.current,
+          audioBase64: audio ? await blobToBase64(audio) : null,
+          audioMimeType: audio?.type ?? null
         })
       });
       const payload = await response.json();
@@ -257,7 +286,7 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
     } catch (error) {
       setExportStatus(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [actorId, context, onSubmitted, sessionId, startedAtEpochMs, stimulus.stimulusId, trial, trialId]);
+  }, [actorId, context, onSubmitted, sessionId, startedAtEpochMs, stimulus.stimulusId, thinkAloud, trial, trialId]);
 
   if (phase === "instructions") {
     return (
@@ -276,7 +305,20 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
               Development fixture — not an official CAP/MTCI stimulus.
             </p>
           )}
-          <button className="audra-primary" onClick={() => setPhase("drawing")}>
+          <p className="audra-consent">
+            Please think aloud while you draw. Your voice is recorded for the study and stored
+            with your drawing. A microphone problem will not stop you from drawing or submitting.
+          </p>
+          {thinkAloud.error && <p className="audra-error">{thinkAloud.error}</p>}
+          <button
+            className="audra-primary"
+            onClick={async () => {
+              // A refused or broken microphone must never cost the participant
+              // the trial, so the error is surfaced and the trial starts anyway.
+              await thinkAloud.start();
+              setPhase("drawing");
+            }}
+          >
             Start
           </button>
         </section>
@@ -332,6 +374,11 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
           <button className="audra-tool" onClick={onUndo} disabled={!trial.canUndo}>
             Undo Last
           </button>
+          {thinkAloud.isRecording && (
+            <span className="audra-recording" role="status">
+              ● recording
+            </span>
+          )}
         </div>
 
         <label className="audra-description">

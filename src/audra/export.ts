@@ -5,6 +5,12 @@ import { deriveScene, type AudraTrialState } from "./reducer";
 import type { Stimulus } from "./stimulus";
 import { sceneToSvg, type BackgroundEmbed } from "./svg";
 import type { ReplayData } from "./replayRuntime";
+import {
+  summarizeThinkAloud,
+  toThinkAloudJsonl,
+  validateThinkAloudChunks,
+  type ThinkAloudChunk
+} from "./thinkAloud";
 
 export const audraExportVersion = "audra-export-v1" as const;
 
@@ -46,6 +52,9 @@ export type BundleContext = {
   agentRun?: Record<string, unknown> | null;
   runStats?: Record<string, unknown> | null;
   rejections?: unknown[];
+  /** Human process trace. Kept beside the event log, never inside it. */
+  thinkAloud?: readonly ThinkAloudChunk[];
+  audioFileName?: string | null;
   /** Bundled `replayRuntime.ts`, injected so this module stays pure. */
   replayRuntimeJs: string;
 };
@@ -110,7 +119,16 @@ export function buildSessionJson(context: BundleContext) {
     },
     exportProfile: audraExportProfile,
     processSummary: summarizeActions(actions),
-    // Agent run details stay separate from the shared canvas event log.
+    // Both process traces stay separate from the shared canvas event log and
+    // out of every exported image.
+    thinkAloud: context.thinkAloud
+      ? {
+          ...summarizeThinkAloud(context.thinkAloud),
+          audioFileName: context.audioFileName ?? null,
+          chunkDurationMs: 10000,
+          validationErrors: validateThinkAloudChunks(context.thinkAloud)
+        }
+      : null,
     agentRun: context.agentRun ?? null,
     runStats: context.runStats ?? null,
     rejections: context.rejections ?? []
@@ -172,7 +190,10 @@ export function buildTextFiles(context: BundleContext): TextFile[] {
     { name: "final_canvas.svg", content: sceneToSvg(deriveScene(state), context.background) },
     { name: "description.txt", content: `${state.description}\n` },
     { name: "session.json", content: `${JSON.stringify(buildSessionJson(context), null, 2)}\n` },
-    { name: "replay.html", content: buildReplayHtml(context) }
+    { name: "replay.html", content: buildReplayHtml(context) },
+    ...(context.thinkAloud && context.thinkAloud.length > 0
+      ? [{ name: "thinkaloud.jsonl", content: `${toThinkAloudJsonl(context.thinkAloud)}\n` }]
+      : [])
   ];
 }
 

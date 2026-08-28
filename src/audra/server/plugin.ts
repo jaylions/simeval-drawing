@@ -314,7 +314,10 @@ async function handleExport(request: IncomingMessage, response: ServerResponse, 
       startedAt,
       endedAt,
       appVersion: context.appVersion,
-      appCommit: context.appCommit
+      appCommit: context.appCommit,
+      thinkAloud: Array.isArray(body.thinkAloud) ? body.thinkAloud : undefined,
+      audioBase64: typeof body.audioBase64 === "string" ? body.audioBase64 : null,
+      audioMimeType: typeof body.audioMimeType === "string" ? body.audioMimeType : null
     };
   }
 

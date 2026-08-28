@@ -11,6 +11,7 @@ import {
 import { replay, type AudraTrialState } from "../reducer";
 import type { AudraEvent } from "../events";
 import type { Stimulus } from "../stimulus";
+import type { ThinkAloudChunk } from "../thinkAloud";
 import { loadBackgroundEmbed, renderSvgToPng } from "./renderer";
 
 let replayRuntimeJs: string | null = null;
@@ -47,6 +48,10 @@ export type ExportRequest = {
   agentRun?: Record<string, unknown> | null;
   runStats?: Record<string, unknown> | null;
   rejections?: unknown[];
+  thinkAloud?: readonly ThinkAloudChunk[];
+  /** Archival think-aloud audio, base64. Written verbatim; never transcoded. */
+  audioBase64?: string | null;
+  audioMimeType?: string | null;
 };
 
 export async function writeExportBundle(
@@ -56,9 +61,11 @@ export async function writeExportBundle(
   exportDir: string
 ) {
   const background = loadBackgroundEmbed(request.stimulus, publicDir);
+  const audioFileName = request.audioBase64 ? "thinkaloud_audio.webm" : null;
   const context: BundleContext = {
     ...request,
     exportedAt: request.exportedAt ?? new Date().toISOString(),
+    audioFileName,
     background,
     replayRuntimeJs: await getReplayRuntime(projectRoot)
   };
@@ -82,6 +89,11 @@ export async function writeExportBundle(
   ] as const) {
     writeFileSync(join(directory, name), renderSvgToPng(svg, pixels));
     written.push(name);
+  }
+
+  if (request.audioBase64 && audioFileName) {
+    writeFileSync(join(directory, audioFileName), Buffer.from(request.audioBase64, "base64"));
+    written.push(audioFileName);
   }
 
   return { baseName, directory, files: written.sort() };

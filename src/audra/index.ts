@@ -11,3 +11,4 @@ export * from "./humanInput";
 export * from "./reducer";
 export * from "./stimulus";
 export * from "./svg";
+export * from "./thinkAloud";
