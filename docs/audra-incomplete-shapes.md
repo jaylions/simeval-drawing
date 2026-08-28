@@ -209,9 +209,24 @@ the server. **Every repair is counted and reported as `driverAssistance` in the
 run log**, because leniency the driver grants an agent is help a human
 participant does not get.
 
-Each turn sends the system prompt, one image of the current canvas, and a short
-text history of previous actions — not an accumulating stack of images, which
-2B-class models handle badly.
+Each turn sends the system prompt, one image of the current canvas, a short text
+history of previous actions, and the agent's currently recorded answer to
+"What did you draw?" — not an accumulating stack of images, which 2B-class
+models handle badly. Echoing the answer back mirrors the participant's answer
+box, which stays visible on screen for the whole trial.
+
+### The final answer
+
+The prompt requires the run to finish in a fixed order: `set_description` once,
+with a single final answer naming the whole picture, then `submit_task`. The run
+log reports `finalAnswer.recorded` and `finalAnswer.setDescriptionCalls`, and
+the driver prints a warning when a trial is submitted with no answer.
+
+This is prompt-level only. The reducer accepts a submission with an empty
+description — the sole submission guard is that a drawing attempt exists — so
+small models will sometimes skip the answer. Check `finalAnswer.recorded` before
+treating a run as complete, or make the description a hard submission
+requirement in the reducer if the protocol needs one.
 
 ### Run metadata
 

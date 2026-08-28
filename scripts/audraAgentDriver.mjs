@@ -66,7 +66,17 @@ Rules:
 - draw_stroke needs at least 2 points. Long curves need many points.
 - You cannot move or erase the four starting lines.
 - Draw several strokes before finishing.
-- When the drawing is done: set_description, then submit_task.`;
+
+Finishing, in this exact order:
+1. set_description - answer the question "What did you draw?" with ONE final
+   answer naming the whole picture, for example "a lantern floating over a
+   river". Call this exactly once, when the drawing is finished. It is your
+   answer about the finished drawing, not a running commentary, so do not call
+   it while you are still drawing.
+2. submit_task - only after your answer is recorded.
+
+Never call submit_task before set_description. A drawing submitted with no
+answer is an incomplete response.`;
 
 async function postJson(url, body) {
   const response = await fetch(url, {
@@ -162,6 +172,7 @@ async function main() {
   if (!observation.payload.ok) throw new Error(`Initial observation failed: ${JSON.stringify(observation.payload)}`);
   let image = observation.payload.image.base64;
   let submitted = false;
+  let currentDescription = observation.payload.status?.description ?? "";
 
   for (let turn = 1; turn <= options.maxTurns && !submitted; turn += 1) {
     let call;
@@ -178,10 +189,15 @@ async function main() {
       if (Array.isArray(call.points)) call.points = call.points.map(([x, y]) => ({ x, y }));
       trace = { promptedThought: thought ?? null, reasoningContent: null, thinkBlocks: [], channels: [] };
     } else {
-      const historyText = history.length === 0
+      const actionsText = history.length === 0
         ? "You have not drawn anything yet."
         : `Your actions so far:\n${history.join("\n")}`;
-      const reply = await callModel(options, image, historyText);
+      // A participant can always see what they typed in the answer box, so the
+      // agent is shown the same thing rather than having to remember it.
+      const answerText = currentDescription
+        ? `Your recorded answer to "What did you draw?": "${currentDescription}"`
+        : 'You have NOT yet answered "What did you draw?". You must call set_description once before submit_task.';
+      const reply = await callModel(options, image, `${actionsText}\n\n${answerText}`);
       rawReply = reply.content;
       const reasoning = extractReasoning(reply.content, reply.message);
       // Think spans are reasoning, not the answer; the tool call is read from
@@ -211,6 +227,7 @@ async function main() {
     const result = await postJson(`${options.base}/api/audra/tool`, { trialId, call });
     const accepted = result.payload.ok === true;
     if (accepted && result.payload.image) image = result.payload.image.base64;
+    if (result.payload.status) currentDescription = result.payload.status.description ?? currentDescription;
 
     const label = call.tool === "draw_stroke" || call.tool === "erase_stroke"
       ? `${call.tool} (${call.points.length} points)`
@@ -262,6 +279,11 @@ async function main() {
     // Driver leniency is assistance a human participant does not receive, so it
     // is reported rather than hidden.
     driverAssistance: { parseRepairs, parseFailures },
+    finalAnswer: {
+      text: currentDescription || null,
+      recorded: currentDescription.length > 0,
+      setDescriptionCalls: turns.filter(entry => entry.accepted && entry.call?.tool === "set_description").length
+    },
     reasoningTrace: {
       turnsWithThought: turns.filter(entry => entry.reasoning?.promptedThought).length,
       turnsWithReasoningContent: turns.filter(entry => entry.reasoning?.reasoningContent).length,
@@ -310,8 +332,13 @@ async function main() {
       `parse repairs ${parseRepairs} · parse failures ${parseFailures}\n` +
       `reasoning captured on ${summary.reasoningTrace.turnsWithThought} turns (thought), ` +
       `${summary.reasoningTrace.turnsWithReasoningContent} (reasoning_content), ` +
-      `${summary.reasoningTrace.turnsWithThinkTags} (think tags)`
+      `${summary.reasoningTrace.turnsWithThinkTags} (think tags)\n` +
+      `final answer: ${summary.finalAnswer.recorded ? JSON.stringify(summary.finalAnswer.text) : "NONE RECORDED"}` +
+      ` (set_description accepted ${summary.finalAnswer.setDescriptionCalls}x)`
   );
+  if (submitted && !summary.finalAnswer.recorded) {
+    console.log("warning: the trial was submitted without an answer to \"What did you draw?\".");
+  }
   if (!submitted) process.exitCode = 1;
 }
 
