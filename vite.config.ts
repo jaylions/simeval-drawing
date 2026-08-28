@@ -1,17 +1,21 @@
 import { SpeechClient } from "@google-cloud/speech";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { accessSync, constants, readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
+import { audraTaskPlugin } from "./src/audra/server/plugin";
 import { timedAgentDecisionSchema } from "./src/agent/timedAgentProtocol";
 import { agentPromptVersion } from "./src/data/versionInfo";
 
 const agentSystemPrompt = `You are an AI creative agent operating Excalidraw in a timed research session. Work as a reflective visual designer responding to the assigned task and the artifact's current visible state.
 
-You are not constrained to one tool call per decision. Return every tool call that is useful for the current coherent design move in toolCalls, in execution order. There is no fixed turn count and no artificial maximum number of tool calls or elements. Use the available time to generate, inspect, revise, simplify, replace, reorganize, and refine the artifact. Do not follow a fixed phase pipeline and do not add steps merely to consume time.
+You are not constrained to one tool call per decision. Return every free_draw or add_elements call that is useful for the current coherent design move in toolCalls, in execution order. There is no fixed turn count and no artificial maximum number of tool calls or paths. Use the available time to generate and refine the artifact. Do not add steps merely to consume time.
 
-Available tools are clear_canvas, create_scene, get_scene, add_elements, update_elements, delete_elements, move_elements, rotate_elements, bind_elements, replace_scene, sketch_path, free_draw, and get_scene_summary. rotate_elements accepts absolute clockwise angles in degrees. bind_elements connects an existing arrow's endpoints to existing shapes; pass null for an endpoint to unbind it. Use sketch_path for angular or geometric paths and free_draw for smooth, organic, expressive, or irregular strokes. For text inside a shape, prefer labelText and labelFontSize. Give visual elements task-specific semanticRole values. Use exact element IDs from the scene summary for updates, movement, rotation, binding, and deletion. Avoid full-scene replacement for local revisions.
+The only available tools are free_draw and add_elements. Use free_draw for every visual mark, including geometric, angular, organic, expressive, or irregular strokes. A free_draw call may contain multiple paths, and each path must contain at least two points. Use add_elements only to add text labels that make the drawing understandable; its elements array accepts text elements only. Keep labels concise and place them near the visual feature they explain. You cannot clear, move, resize, rotate, bind, delete, replace, add predefined shapes, or request observation tools. The current screenshot and scene summary are supplied automatically before each decision. Give every path and text element a task-specific semanticRole and use groupId when several items belong to one visual idea.
+
+Make every stroke and text label easy to see on the white canvas. Use saturated, high-contrast colors such as #1c7ed6, #e03131, #2f9e44, #7048e8, #f08c00, #0b7285, or #1e1e1e. Do not use gray, near-white, pale, translucent, or low-contrast colors. Use strokeWidth 1 by default and increase it only when emphasis is necessary. Use opacity 100 and readable text sizes of at least 20 unless the task itself clearly requires a different visual treatment.
 
 The request states elapsed and remaining time. Before the finalization window, never return status finish. Continue considering the artifact; if no meaningful edit is currently justified, return continue with an empty toolCalls array rather than inventing work. When finalizationWindow is true, stop broad exploration, inspect composition and task coverage, perform any necessary cleanup or final revision, and return status finish. You may include final cleanup tool calls in the same finish decision. If the artifact is already complete, finish without unnecessary calls.
 
@@ -69,11 +73,29 @@ function formatSttError(error: unknown) {
     : message;
 }
 
+function googleSttCredentialError(keyFilename: string | undefined, allowAdc: boolean) {
+  if (!keyFilename) {
+    return allowAdc
+      ? null
+      : "Google STT credentials are not configured. Set GOOGLE_APPLICATION_CREDENTIALS to a readable absolute JSON path, or explicitly set GOOGLE_STT_ALLOW_ADC=true.";
+  }
+  if (!isAbsolute(keyFilename)) {
+    return "GOOGLE_APPLICATION_CREDENTIALS must be an absolute path on the server.";
+  }
+  try {
+    accessSync(keyFilename, constants.R_OK);
+    return null;
+  } catch {
+    return "The GOOGLE_APPLICATION_CREDENTIALS file does not exist or is not readable by the Node process.";
+  }
+}
+
 let speechClient: SpeechClient | null = null;
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const agentApiEnabled = env.ENABLE_AGENT_API === "true" || env.VITE_ENABLE_AGENT_MODE === "true";
+  // This branch is intentionally a Free Draw + Text operation-feasibility experiment.
+  const agentApiEnabled = true;
 
   return {
     define: {
@@ -85,6 +107,8 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      // Incomplete-shapes task API. Independent of the Excalidraw session endpoints.
+      audraTaskPlugin(),
       {
         name: "simeval-google-stt",
         configureServer(server) {
@@ -197,6 +221,13 @@ export default defineConfig(({ mode }) => {
               }
 
               const keyFilename = env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+              const allowAdc = (env.GOOGLE_STT_ALLOW_ADC || process.env.GOOGLE_STT_ALLOW_ADC) === "true";
+              const credentialError = googleSttCredentialError(keyFilename, allowAdc);
+              if (credentialError) {
+                response.statusCode = 503;
+                response.end(JSON.stringify({ success: false, languageCode, error: credentialError }));
+                return;
+              }
               speechClient ??= new SpeechClient(keyFilename ? { keyFilename } : undefined);
               const alternativeLanguageCodes = (env.GOOGLE_STT_ALTERNATIVE_LANGUAGE_CODES || process.env.GOOGLE_STT_ALTERNATIVE_LANGUAGE_CODES || "en-US")
                 .split(",")

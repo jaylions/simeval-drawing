@@ -11,11 +11,15 @@
     "test:element-mutations": "node scripts/elementMutationIntegrity.test.mjs",
     "test:data-collection": "node scripts/dataCollectionIntegrity.test.mjs",
     "test:agent-batch": "node scripts/agentBatchIntegrity.test.mjs",
-    "test:agent-transforms": "node scripts/agentTransformIntegrity.test.mjs"
+    "test:agent-transforms": "node scripts/agentTransformIntegrity.test.mjs",
+    "test:audra": "node scripts/audraCanonicalIntegrity.test.mjs",
+    "test:audra-driver": "node scripts/audraDriverParserIntegrity.test.mjs",
+    "audra:agent": "node scripts/audraAgentDriver.mjs"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.17.0",
     "@google-cloud/speech": "^7.5.0",
+    "@resvg/resvg-js": "^2.6.2",
     "fflate": "^0.8.3",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
