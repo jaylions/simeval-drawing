@@ -41,7 +41,9 @@ The development server listens on all interfaces and uses port `5173` by default
 http://localhost:5173
 ```
 
-Vite reads `.env.local` when the server starts. Restart `npm run dev` after changing environment variables. A browser hard refresh may also be necessary after changing `VITE_ENABLE_AGENT_MODE`.
+Vite reads `.env.local` when the server starts. Restart `npm run dev` after changing environment variables.
+
+> Free Draw + Text feasibility experiment: this branch enables Agent mode and `/api/agent-decision` directly in code. Both Human and Agent operations are restricted to free drawing and text creation. The two enable flags below are retained only for configuration compatibility.
 
 ## Environment configuration
 
@@ -51,11 +53,12 @@ Create `.env.local` from `.env.example`. The file is ignored by Git and must not
 # OpenAI agent runtime
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.1-mini
-VITE_ENABLE_AGENT_MODE=false
-ENABLE_AGENT_API=false
+VITE_ENABLE_AGENT_MODE=true
+ENABLE_AGENT_API=true
 
 # Google Cloud Speech-to-Text
 GOOGLE_APPLICATION_CREDENTIALS=
+GOOGLE_STT_ALLOW_ADC=false
 GOOGLE_STT_LANGUAGE_CODE=ko-KR
 GOOGLE_STT_ALTERNATIVE_LANGUAGE_CODES=en-US
 GOOGLE_STT_MODEL=latest_long
@@ -67,27 +70,28 @@ GOOGLE_STT_MODEL=latest_long
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | Agent mode only | None | Server-side credential used by `/api/agent-decision`. Never prefix it with `VITE_`. |
 | `OPENAI_MODEL` | No | `gpt-5.1-mini` | OpenAI model used for structured agent decisions. |
-| `VITE_ENABLE_AGENT_MODE` | No | `false` | Client-side build flag that shows the Human/Agent picker and starts agent sessions. |
-| `ENABLE_AGENT_API` | No | `false` | Server-side flag for the agent decision endpoint. |
-| `GOOGLE_APPLICATION_CREDENTIALS` | STT only | Google ADC lookup | Absolute path to a Google Cloud service-account JSON file. |
+| `VITE_ENABLE_AGENT_MODE` | No | `true` in this branch | Compatibility flag; Agent mode is enabled directly for the experiment. |
+| `ENABLE_AGENT_API` | No | `true` in this branch | Compatibility flag; the Agent endpoint is enabled directly for the experiment. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | STT key-file mode | None | Absolute path to a Google Cloud service-account JSON file. |
+| `GOOGLE_STT_ALLOW_ADC` | No | `false` | Allow intentional ADC discovery when no credential file path is configured. |
 | `GOOGLE_STT_LANGUAGE_CODE` | No | `ko-KR` | Primary recognition language. |
 | `GOOGLE_STT_ALTERNATIVE_LANGUAGE_CODES` | No | `en-US` | Comma-separated alternative recognition languages. |
 | `GOOGLE_STT_MODEL` | No | `latest_long` | Google Speech-to-Text recognition model. |
 
 `VITE_ENABLE_AGENT_MODE` is exposed to browser code because all `VITE_` variables are client-visible. API keys and credential contents must remain server-side.
 
-The current middleware enables `/api/agent-decision` when either `ENABLE_AGENT_API` or `VITE_ENABLE_AGENT_MODE` is `true`. For predictable deployments, set both flags to the same value.
+The current experimental branch enables `/api/agent-decision` regardless of these two flags. `OPENAI_API_KEY` remains required to execute an Agent decision.
 
 ### Human-only participant deployment
 
-Use the following configuration for participant-facing human sessions:
+This configuration is documented for the normal branch but does not disable Agent mode in the current Free Draw experiment branch:
 
 ```env
 VITE_ENABLE_AGENT_MODE=false
 ENABLE_AGENT_API=false
 ```
 
-The application opens directly in Human setup mode, and `/api/agent-decision` returns `403`. Drawing, logging, raw audio recording, and ZIP export remain available without OpenAI credentials.
+To restore a Human-only deployment after the experiment, revert the two hardcoded experiment switches in `src/App.tsx` and `vite.config.ts`.
 
 ### Agent research and development
 
@@ -108,9 +112,10 @@ Set `GOOGLE_APPLICATION_CREDENTIALS` to an absolute file path accessible to the 
 
 ```env
 GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
+GOOGLE_STT_ALLOW_ADC=false
 ```
 
-Without valid Google credentials, human drawing and complete WebM audio export still work. Each affected transcription chunk is retained with `transcriptionStatus: "failed"`, its byte size, MIME type, chunk index, language metadata when available, and the actual error message.
+The path must exist on the server and be readable by the user running Node. If the deployment intentionally uses `gcloud auth application-default login` or a Google Cloud attached service account instead of a JSON path, set `GOOGLE_STT_ALLOW_ADC=true`. Without valid Google credentials, the endpoint returns `503` rather than starting ADC discovery unexpectedly; human drawing and complete WebM audio export still work. Each affected transcription chunk is retained with `transcriptionStatus: "failed"`, its byte size, MIME type, chunk index, language metadata when available, and the actual error message.
 
 ## Tasks
 

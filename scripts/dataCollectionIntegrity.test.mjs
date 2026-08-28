@@ -74,6 +74,9 @@ assert.deepEqual([...files[`${baseName}/screenshots/test.png`]], [1, 2, 3]);
 
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const agentSource = readFileSync(new URL("../src/agent/timedAgent.ts", import.meta.url), "utf8");
+const agentProtocolSource = readFileSync(new URL("../src/agent/timedAgentProtocol.ts", import.meta.url), "utf8");
+const styleSource = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
+const viteConfigSource = readFileSync(new URL("../vite.config.ts", import.meta.url), "utf8");
 assert.match(appSource, /screenshotPolicy: "initial_action_phase_final_no_periodic"/);
 assert.match(appSource, /outcomeEvaluationId/);
 assert.match(appSource, /buildRationaleRecords/);
@@ -84,5 +87,28 @@ assert.doesNotMatch(appSource, /const beforeSnapshotId = currentSnapshotIdRef\.c
 assert.match(appSource, /pendingAgentBeforeSnapshotIdRef\.current = currentSnapshotIdRef\.current/);
 assert.match(agentSource, /observationSnapshotId/);
 assert.match(agentSource, /requestDurationMs/);
+assert.match(viteConfigSource, /googleSttCredentialError/);
+assert.match(viteConfigSource, /response\.statusCode = 503/);
+assert.match(viteConfigSource, /GOOGLE_STT_ALLOW_ADC/);
+assert.match(appSource, /const enableAgentMode = true/);
+assert.match(appSource, /setActiveTool\(\{ type: "freedraw", locked: true \}\)/);
+assert.match(appSource, /nextActiveToolType !== "freedraw" && nextActiveToolType !== "text" && nextActiveToolType !== "hand"/);
+assert.match(appSource, /UIOptions=\{freeDrawOnlyUIOptions\}/);
+assert.match(agentProtocolSource, /enabledTimedAgentToolNames = \["free_draw", "add_elements"\] as const/);
+assert.match(agentProtocolSource, /type: \{ type: "string", enum: \["text"\] \}/);
+assert.match(agentProtocolSource, /enum: enabledTimedAgentToolNames/);
+assert.match(viteConfigSource, /const agentApiEnabled = true/);
+assert.match(viteConfigSource, /The only available tools are free_draw and add_elements/);
+assert.match(viteConfigSource, /Do not use gray, near-white, pale, translucent, or low-contrast colors/);
+assert.match(styleSource, /free-draw-only-canvas/);
+assert.match(styleSource, /color-picker__button\[aria-label="Stroke"\]/);
+assert.match(appSource, /currentItemStrokeColor: "#1c7ed6"/);
+assert.match(appSource, /currentItemStrokeWidth: 1/);
+assert.match(appSource, /currentItemStrokeStyle: "solid"/);
+assert.match(appSource, /currentItemRoughness: 1/);
+assert.match(appSource, /currentItemOpacity: 100/);
+assert.match(appSource, /currentItemFontSize: 20/);
+assert.match(appSource, /text: true/);
+assert.match(appSource, /appState\?\.activeTool\.type === "text" \|\| appState\?\.editingElement\?\.type === "text"/);
 
 console.log("data collection integrity tests passed");

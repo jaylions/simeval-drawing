@@ -103,7 +103,8 @@ const bindingDiff = diffSceneSummaries(
 assert.deepEqual(bindingDiff.bindingChanged, ["arrow"]);
 assert.equal(sceneActionLabel(bindingDiff), "change_binding");
 
-// The autonomous protocol, executor, instrumenter, and prompt all expose the new mutating tools.
+// Transform support remains intact internally, but the Free Draw feasibility
+// experiment must not expose those tools to the autonomous model.
 const protocolSource = readFileSync(new URL("../src/agent/timedAgentProtocol.ts", import.meta.url), "utf8");
 const executorSource = readFileSync(new URL("../src/agent/timedAgent.ts", import.meta.url), "utf8");
 const actionSource = readFileSync(new URL("../src/logging/artifactActions.ts", import.meta.url), "utf8");
@@ -112,7 +113,8 @@ for (const toolName of ["rotate_elements", "bind_elements"]) {
   assert(protocolSource.includes(`"${toolName}"`));
   assert(executorSource.includes(`call.toolName === "${toolName}"`));
   assert(actionSource.includes(`"${toolName}"`));
-  assert(promptSource.includes(toolName));
 }
+assert.match(protocolSource, /enabledTimedAgentToolNames = \["free_draw", "add_elements"\] as const/);
+assert.match(promptSource, /The only available tools are free_draw and add_elements/);
 
 console.log("agent transform integrity tests passed");

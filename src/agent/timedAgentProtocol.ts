@@ -18,6 +18,10 @@ export const timedAgentToolNames = [
   "get_scene_summary"
 ] as const;
 
+// Operation-feasibility experiment: expose only shared free-draw and text
+// creation operations while keeping the full internal call type intact.
+export const enabledTimedAgentToolNames = ["free_draw", "add_elements"] as const;
+
 export type TimedAgentToolCall = {
   toolName: (typeof timedAgentToolNames)[number];
   description: string;
@@ -58,7 +62,8 @@ const elementSchema = {
     "points", "semanticRole", "groupId"
   ],
   properties: {
-    type: { type: "string", enum: ["rectangle", "ellipse", "diamond", "text", "arrow", "line"] },
+    // add_elements is exposed only as the experiment's text creation tool.
+    type: { type: "string", enum: ["text"] },
     x: { type: "number" },
     y: { type: "number" },
     width: { type: "number" },
@@ -87,7 +92,7 @@ const toolCallSchema = {
     "updates", "elementIds", "moves", "rotations", "bindings", "paths"
   ],
   properties: {
-    toolName: { type: "string", enum: timedAgentToolNames },
+    toolName: { type: "string", enum: enabledTimedAgentToolNames },
     description: { type: "string" },
     reason: { type: "string" },
     replace: { type: "boolean" },

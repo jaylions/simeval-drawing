@@ -577,6 +577,30 @@ textarea {
   height: 100%;
 }
 
+/* Excalidraw's public UIOptions type does not cover every toolbar item in 0.17.
+   Keep this experimental surface Free Draw-only even if an item bypasses it. */
+.free-draw-only-canvas .App-toolbar__extra-tools-trigger,
+.free-draw-only-canvas [data-testid="toolbar-selection"],
+.free-draw-only-canvas [data-testid="toolbar-rectangle"],
+.free-draw-only-canvas [data-testid="toolbar-diamond"],
+.free-draw-only-canvas [data-testid="toolbar-ellipse"],
+.free-draw-only-canvas [data-testid="toolbar-arrow"],
+.free-draw-only-canvas [data-testid="toolbar-line"],
+.free-draw-only-canvas [data-testid="toolbar-image"],
+.free-draw-only-canvas [data-testid="toolbar-eraser"],
+.free-draw-only-canvas [data-testid="toolbar-frame"],
+.free-draw-only-canvas [data-testid="toolbar-embeddable"],
+.free-draw-only-canvas [data-testid="toolbar-laser"] {
+  display: none !important;
+}
+
+/* Keep only the Stroke color picker in the Free Draw + Text property panel.
+   Width, stroke shape/style, sloppiness, opacity, typography, and layer
+   controls use the experiment defaults. */
+.free-draw-only-canvas .panelColumn:has(> div:first-child .color-picker__button[aria-label="Stroke"]) > :not(:first-child) {
+  display: none !important;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-rows: 54px minmax(0, 1fr);

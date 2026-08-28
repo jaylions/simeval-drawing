@@ -1,6 +1,6 @@
 import { Excalidraw, exportToBlob } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/types/element/types";
-import type { BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types/types";
+import type { BinaryFiles, ExcalidrawImperativeAPI, ExcalidrawProps } from "@excalidraw/excalidraw/types/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPilotAgentApi, type PilotAgentApi } from "./agent/pilotAgentApi";
 import { runTimedAgent, type AgentTrajectoryEntry } from "./agent/timedAgent";
@@ -56,10 +56,40 @@ const snapshotIntervalMs = 5000;
 const recordingTimesliceMs = 10000;
 const defaultAgentTimeBudgetMinutes = 5;
 const agentFinalizationWindowMs = 30 * 1000;
-const enableAgentMode = import.meta.env.VITE_ENABLE_AGENT_MODE === "true";
+// This branch is intentionally a Free Draw + Text operation-feasibility experiment.
+const enableAgentMode = true;
 const appVersion = import.meta.env.VITE_APP_VERSION || "unknown";
 const appCommit = import.meta.env.VITE_APP_COMMIT || "unknown";
 const agentPromptHash = import.meta.env.VITE_AGENT_PROMPT_HASH || "unknown";
+
+const freeDrawOnlyUIOptions = {
+  canvasActions: {
+    changeViewBackgroundColor: false,
+    clearCanvas: false,
+    export: false,
+    loadScene: false,
+    saveToActiveFile: false,
+    toggleTheme: false,
+    saveAsImage: false
+  },
+  // Excalidraw 0.17 only types `image`, but its runtime shape switcher honors
+  // the same boolean contract for every named tool.
+  tools: {
+    selection: false,
+    rectangle: false,
+    diamond: false,
+    ellipse: false,
+    arrow: false,
+    line: false,
+    freedraw: true,
+    text: true,
+    image: false,
+    eraser: false,
+    frame: false,
+    embeddable: false,
+    laser: false
+  }
+} as unknown as NonNullable<ExcalidrawProps["UIOptions"]>;
 
 type SessionStatus = "setup" | "active" | "completed";
 type RecordingFinalizationStatus = "idle" | "recording" | "stopping" | "transcribing" | "ready_to_export" | "exported";
@@ -530,7 +560,17 @@ function App() {
     pendingFreeDrawStartedAtRef.current = null;
     suppressHumanChangeUntilRef.current = performance.now() + 1000;
     api.resetScene();
-    api.updateScene({ elements: elements as ExcalidrawElement[] });
+    api.updateScene({
+      elements: elements as ExcalidrawElement[],
+      appState: {
+        currentItemStrokeColor: "#1c7ed6",
+        currentItemStrokeWidth: 1,
+        currentItemStrokeStyle: "solid",
+        currentItemRoughness: 1,
+        currentItemOpacity: 100,
+        currentItemFontSize: 20
+      }
+    });
     api.history.clear();
     latestElementsRef.current = elements;
     latestFilesRef.current = {};
@@ -645,6 +685,9 @@ function App() {
     if (activeToolTypeRef.current === "freedraw" && nextActiveToolType !== "freedraw") {
       flushFreeDrawStroke(now);
     }
+    if (nextActiveToolType !== "freedraw" && nextActiveToolType !== "text" && nextActiveToolType !== "hand") {
+      api?.setActiveTool({ type: "freedraw", locked: true });
+    }
     activeToolTypeRef.current = nextActiveToolType;
     previousElementsByIdRef.current = currentElementsById;
     const pending = pendingHumanActionRef.current;
@@ -661,7 +704,7 @@ function App() {
         };
     if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
     actionTimerRef.current = setTimeout(flushHumanAction, actionIdleMs);
-  }, [elapsedMs, flushFreeDrawStroke, flushHumanAction, status, timestampAt]);
+  }, [api, elapsedMs, flushFreeDrawStroke, flushHumanAction, status, timestampAt]);
 
   const startSession = useCallback(() => {
     if (!api || !selectedActor || (selectedActor === "human" && !participantId.trim())) {
@@ -729,6 +772,7 @@ function App() {
     pendingHumanActionRef.current = null;
     sessionRef.current = null;
     resetCanvasForSession(initialElements);
+    api.setActiveTool({ type: "freedraw", locked: true });
 
     sessionStartedPerformanceRef.current = performance.now();
     sessionEpochRef.current = startedAt.getTime();
@@ -1551,7 +1595,7 @@ function App() {
           </aside>
 
           <section
-            className="canvas-shell"
+            className="canvas-shell free-draw-only-canvas"
             onPointerDown={event => {
               if (status !== "active") return;
               const now = elapsedMs();
@@ -1563,6 +1607,23 @@ function App() {
             }}
             onPointerUp={finishFreeDrawPointer}
             onPointerCancel={finishFreeDrawPointer}
+            onContextMenu={event => {
+              if (status !== "active") return;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onPaste={event => {
+              if (status !== "active") return;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onKeyDownCapture={event => {
+              if (status !== "active" || event.key === " " || event.key === "Escape") return;
+              const appState = api?.getAppState();
+              if (appState?.activeTool.type === "text" || appState?.editingElement?.type === "text") return;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
           >
             {panelCollapsed && <button className="show-panel-button" onClick={() => setPanelCollapsed(false)}>Task</button>}
             <Excalidraw
@@ -1571,6 +1632,7 @@ function App() {
               viewModeEnabled={false}
               langCode="en"
               theme="light"
+              UIOptions={freeDrawOnlyUIOptions}
             />
           </section>
         </div>
