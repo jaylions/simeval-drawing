@@ -78,7 +78,22 @@ function verify(dir) {
       const chunks = readFileSync(join(dir, "thinkaloud.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
       const failed = chunks.filter(chunk => chunk.transcriptionStatus === "failed").length;
       const done = chunks.filter(chunk => chunk.transcriptionStatus === "completed").length;
-      notes.push(`think-aloud: ${chunks.length} chunks, ${done} transcribed, ${failed} failed`);
+      const silent = chunks.filter(chunk => chunk.audio.silent).length;
+      const peak = chunks.reduce((max, chunk) => Math.max(max, chunk.audio.peakLevel ?? 0), 0);
+      notes.push(
+        `think-aloud: ${chunks.length} chunks, ${done} transcribed, ${failed} failed, ` +
+        `peak input ${peak.toFixed(4)}`
+      );
+      // A dead microphone produces valid audio and an empty transcript, which
+      // looks identical to a participant who said nothing. Fail loudly.
+      if (silent === chunks.length && chunks.length > 0) {
+        problems.push(`all ${chunks.length} think-aloud chunks recorded no microphone signal`);
+      } else if (silent > 0) {
+        notes.push(`${silent} of ${chunks.length} chunks recorded no microphone signal`);
+      }
+      if (chunks.some(chunk => chunk.audio.peakLevel === undefined)) {
+        notes.push("chunks predate input-level metering, so silence cannot be distinguished from a quiet participant");
+      }
       for (const error of session.thinkAloud?.validationErrors ?? []) problems.push(`think-aloud: ${error}`);
       if (!files.has("thinkaloud_audio.webm")) notes.push("think-aloud transcripts present but no archival audio file");
     }

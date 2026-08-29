@@ -27,7 +27,8 @@ function thinkAloudChunk(sequence, overrides = {}) {
     content: `spoken segment ${sequence}`,
     transcriptionStatus: "completed",
     revisionAtStart: sequence, revisionAtEnd: sequence + 1,
-    audio: { mimeType: "audio/webm", byteSize: 4096, languageCode: "ko-KR", success: true, segments: [] },
+    audio: { mimeType: "audio/webm", byteSize: 4096, languageCode: "ko-KR", success: true, segments: [],
+             peakLevel: 0.31, rmsLevel: 0.07, silent: false },
     ...overrides
   };
 }
@@ -272,6 +273,8 @@ assert.ok(!replayHtml.slice(payloadStart, payloadEnd).includes("</"),
   const session = JSON.parse(files["session.json"]);
   assert.equal(session.thinkAloud.chunkCount, 2);
   assert.equal(session.thinkAloud.transcribedChunks, 2);
+  assert.equal(session.thinkAloud.silentChunks, 0);
+  assert.ok(session.thinkAloud.peakLevel > 0, "a working microphone reports a peak level");
   assert.equal(session.thinkAloud.audioFileName, "thinkaloud_audio.webm");
   assert.deepEqual(session.thinkAloud.validationErrors, []);
 
@@ -306,10 +309,21 @@ assert.ok(!replayHtml.slice(payloadStart, payloadEnd).includes("</"),
   ]);
   assert.ok(overlapping.some(error => error.includes("overlaps")));
 
-  const silent = validateThinkAloudChunks([thinkAloudChunk(0, {
-    audio: { mimeType: "audio/webm", byteSize: 0, languageCode: "", success: false, segments: [] }
+  const noBytes = validateThinkAloudChunks([thinkAloudChunk(0, {
+    audio: { mimeType: "audio/webm", byteSize: 0, languageCode: "", success: false, segments: [],
+             peakLevel: 0.2, rmsLevel: 0.05, silent: false }
   })]);
-  assert.ok(silent.some(error => error.includes("no audio")));
+  assert.ok(noBytes.some(error => error.includes("no audio")));
+
+  // A dead microphone still yields valid audio and an empty transcript, which is
+  // indistinguishable from a quiet participant unless the input level is kept.
+  const deadMic = validateThinkAloudChunks([thinkAloudChunk(0, {
+    content: "", transcriptionStatus: "empty",
+    audio: { mimeType: "audio/webm", byteSize: 2606, languageCode: "ko-KR", success: true, segments: [],
+             peakLevel: 0, rmsLevel: 0, silent: true }
+  })]);
+  assert.ok(deadMic.some(error => error.includes("no microphone signal")),
+    "a silent input must be reported, not pass as an empty transcript");
 }
 
 // A failed transcription keeps its audio and its reason rather than vanishing.
@@ -318,7 +332,8 @@ assert.ok(!replayHtml.slice(payloadStart, payloadEnd).includes("</"),
     content: "",
     transcriptionStatus: "failed",
     audio: { mimeType: "audio/webm", byteSize: 4096, languageCode: "", success: false,
-             error: "STT credentials are not configured.", segments: [] }
+             error: "STT credentials are not configured.", segments: [],
+             peakLevel: 0.28, rmsLevel: 0.06, silent: false }
   });
   const summary = summarizeThinkAloud([failed]);
   assert.equal(summary.failedChunks, 1);

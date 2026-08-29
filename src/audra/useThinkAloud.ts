@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import {
+  silenceThreshold,
   thinkAloudChunkMs,
   type ThinkAloudChunk,
   type ThinkAloudSegment
@@ -16,6 +17,10 @@ type SttResponse = {
 export type ThinkAloudRecorder = {
   chunks: readonly ThinkAloudChunk[];
   isRecording: boolean;
+  /** Live input level, 0-1, for the meter. */
+  inputLevel: number;
+  /** True once enough time has passed with no signal at all. */
+  noInputSignal: boolean;
   pendingTranscriptions: number;
   error: string | null;
   supported: boolean;
@@ -61,6 +66,8 @@ export function useThinkAloud(input: {
   const [isRecording, setIsRecording] = useState(false);
   const [pendingTranscriptions, setPendingTranscriptions] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [inputLevel, setInputLevel] = useState(0);
+  const [noInputSignal, setNoInputSignal] = useState(false);
 
   // The caller rebuilds `input` every render. Reading it through a ref keeps the
   // long-lived recorder callbacks from capturing a stale elapsedMs or revision.
@@ -79,6 +86,70 @@ export function useThinkAloud(input: {
   const pendingRef = useRef(0);
   const flushQueueRef = useRef<Promise<void>>(Promise.resolve());
   const stopResolveRef = useRef<(() => void) | null>(null);
+
+  // Continuous level metering. MediaRecorder happily produces valid Opus from a
+  // dead microphone, so the only way to tell a muted device from a quiet room is
+  // to watch the samples.
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const meterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chunkPeakRef = useRef(0);
+  const chunkSumSquaresRef = useRef(0);
+  const chunkSampleCountRef = useRef(0);
+
+  const startMeter = useCallback((stream: MediaStream) => {
+    const AudioContextClass =
+      window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = new AudioContextClass();
+    void context.resume();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 2048;
+    context.createMediaStreamSource(stream).connect(analyser);
+    audioContextRef.current = context;
+    analyserRef.current = analyser;
+
+    const samples = new Float32Array(analyser.fftSize);
+    let silentSamples = 0;
+    meterTimerRef.current = setInterval(() => {
+      analyser.getFloatTimeDomainData(samples);
+      let peak = 0;
+      let sumSquares = 0;
+      for (const sample of samples) {
+        const magnitude = Math.abs(sample);
+        if (magnitude > peak) peak = magnitude;
+        sumSquares += sample * sample;
+      }
+      chunkPeakRef.current = Math.max(chunkPeakRef.current, peak);
+      chunkSumSquaresRef.current += sumSquares / samples.length;
+      chunkSampleCountRef.current += 1;
+      setInputLevel(peak);
+      // Roughly three seconds of dead input before warning, so a genuine pause
+      // does not trip it.
+      silentSamples = peak < silenceThreshold ? silentSamples + 1 : 0;
+      setNoInputSignal(silentSamples > 30);
+    }, 100);
+  }, []);
+
+  const stopMeter = useCallback(() => {
+    if (meterTimerRef.current) clearInterval(meterTimerRef.current);
+    meterTimerRef.current = null;
+    void audioContextRef.current?.close();
+    audioContextRef.current = null;
+    analyserRef.current = null;
+    setInputLevel(0);
+  }, []);
+
+  const takeChunkLevels = useCallback(() => {
+    const peakLevel = chunkPeakRef.current;
+    const rmsLevel = chunkSampleCountRef.current > 0
+      ? Math.sqrt(chunkSumSquaresRef.current / chunkSampleCountRef.current)
+      : 0;
+    chunkPeakRef.current = 0;
+    chunkSumSquaresRef.current = 0;
+    chunkSampleCountRef.current = 0;
+    return { peakLevel, rmsLevel, silent: peakLevel < silenceThreshold };
+  }, []);
 
   const supported =
     typeof navigator !== "undefined" &&
@@ -160,6 +231,9 @@ export function useThinkAloud(input: {
         chunkTimerRef.current = null;
         const parts = chunkPartsRef.current;
         chunkPartsRef.current = [];
+        // Read and reset the accumulator now, before the next chunk recorder
+        // starts adding to it.
+        const levels = takeChunkLevels();
 
         const flush = async () => {
           const endedAtMs = inputRef.current.elapsedMs();
@@ -186,7 +260,8 @@ export function useThinkAloud(input: {
                 byteSize: blob.size,
                 languageCode: "",
                 success: false,
-                segments: []
+                segments: [],
+                ...levels
               }
             };
             setChunks(previous => [...previous, chunk]);
@@ -211,7 +286,7 @@ export function useThinkAloud(input: {
         if (recorder.state === "recording") recorder.stop();
       }, thinkAloudChunkMs);
     },
-    [input, transcribe]
+    [takeChunkLevels, transcribe]
   );
 
   const start = useCallback(async () => {
@@ -240,6 +315,7 @@ export function useThinkAloud(input: {
       fullRecorderRef.current = full;
       full.start();
 
+      startMeter(stream);
       startChunkRecorder(stream, mimeType);
       setIsRecording(true);
       setError(null);
@@ -252,7 +328,7 @@ export function useThinkAloud(input: {
       );
       return false;
     }
-  }, [startChunkRecorder, supported]);
+  }, [startChunkRecorder, startMeter, supported]);
 
   /** Resolves once the audio is finalized and every transcription has settled. */
   const stop = useCallback(async () => {
@@ -272,6 +348,7 @@ export function useThinkAloud(input: {
     });
     stopResolveRef.current = null;
 
+    stopMeter();
     await flushQueueRef.current;
     // Transcriptions are fired per chunk; wait for the last of them to settle so
     // no chunk is exported still marked pending.
@@ -279,7 +356,7 @@ export function useThinkAloud(input: {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     streamRef.current = null;
-  }, []);
+  }, [stopMeter]);
 
   const audioBlob = useCallback(() => {
     if (fullPartsRef.current.length === 0) return null;
@@ -291,6 +368,8 @@ export function useThinkAloud(input: {
   return {
     chunks,
     isRecording,
+    inputLevel,
+    noInputSignal,
     pendingTranscriptions,
     error,
     supported,

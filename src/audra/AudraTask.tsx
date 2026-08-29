@@ -377,9 +377,25 @@ export function AudraTask({ sessionId, trialId, actorId, stimulus, onSubmitted }
           {thinkAloud.isRecording && (
             <span className="audra-recording" role="status">
               ● recording
+              <span className="audra-meter" aria-hidden="true">
+                <span
+                  className="audra-meter-fill"
+                  style={{ width: `${Math.min(100, Math.round(thinkAloud.inputLevel * 300))}%` }}
+                />
+              </span>
             </span>
           )}
         </div>
+
+        {thinkAloud.isRecording && thinkAloud.noInputSignal && (
+          // MediaRecorder produces valid audio from a dead microphone, so a
+          // silent input would otherwise be invisible until the data is analysed.
+          <p className="audra-warning" role="alert">
+            No sound is reaching the microphone. Check that the browser is allowed to use it in
+            your system settings and that the right input device is selected. You can keep
+            drawing — the drawing is recorded either way.
+          </p>
+        )}
 
         <label className="audra-description">
           <span>{descriptionPrompt}</span>

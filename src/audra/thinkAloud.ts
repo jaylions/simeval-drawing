@@ -49,8 +49,21 @@ export type ThinkAloudChunk = {
     success: boolean;
     error?: string;
     segments: ThinkAloudSegment[];
+    /**
+     * Measured input level over the chunk, 0-1. A live microphone in a silent
+     * room still reads a noise floor, so a peak of zero means no signal ever
+     * reached the browser - a muted device or a denied OS permission - not a
+     * quiet participant. Without this an empty transcript is indistinguishable
+     * from a dead microphone, and a whole study's think-aloud can be lost.
+     */
+    peakLevel: number;
+    rmsLevel: number;
+    silent: boolean;
   };
 };
+
+/** Below this peak over a whole chunk, treat the input as dead rather than quiet. */
+export const silenceThreshold = 0.0005;
 
 export const thinkAloudChunkMs = 10000;
 
@@ -69,6 +82,8 @@ export function summarizeThinkAloud(chunks: readonly ThinkAloudChunk[]) {
     emptyChunks: byStatus("empty"),
     failedChunks: byStatus("failed"),
     pendingChunks: byStatus("pending"),
+    silentChunks: chunks.filter(chunk => chunk.audio.silent).length,
+    peakLevel: chunks.reduce((max, chunk) => Math.max(max, chunk.audio.peakLevel), 0),
     wordCount: chunks.reduce(
       (total, chunk) => total + chunk.audio.segments.reduce((sum, segment) => sum + segment.words.length, 0),
       0
@@ -94,6 +109,12 @@ export function validateThinkAloudChunks(chunks: readonly ThinkAloudChunk[]): st
     }
     if (chunk.audio.byteSize <= 0) {
       errors.push(`Think-aloud chunk ${chunk.sequence} carries no audio.`);
+    }
+    if (chunk.audio.silent) {
+      errors.push(
+        `Think-aloud chunk ${chunk.sequence} recorded no microphone signal (peak ${chunk.audio.peakLevel.toFixed(6)}). ` +
+        "The input device was muted or unavailable; this is not a silent participant."
+      );
     }
     const previous = chunks[index - 1];
     if (previous && chunk.chunkStartedAtMs < previous.chunkEndedAtMs) {

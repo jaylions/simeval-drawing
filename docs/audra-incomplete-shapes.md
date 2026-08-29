@@ -420,6 +420,27 @@ validation errors in `session.json`.
 requested at the instruction screen; if it is refused or unavailable, the error
 is shown and the trial proceeds without audio.
 
+### Detecting a dead microphone
+
+`MediaRecorder` produces perfectly valid Opus from a muted input device, and
+speech-to-text then returns an empty transcript — indistinguishable from a
+participant who simply said nothing. A pilot trial hit exactly this: four
+well-formed chunks, successful STT calls, and 32 seconds of samples that were
+all exactly zero.
+
+So the input level is measured continuously through an `AnalyserNode`:
+
+- a live meter sits beside the recording indicator;
+- after roughly three seconds with no signal the UI warns that nothing is
+  reaching the microphone, while making clear the drawing is unaffected;
+- each chunk stores `peakLevel`, `rmsLevel`, and `silent`, so a dead microphone
+  is visible in the exported data rather than inferred;
+- `validateThinkAloudChunks` reports a silent chunk as an error, and
+  `npm run audra:verify` fails a bundle whose chunks are all silent.
+
+A live microphone in a quiet room still reads a noise floor, so a peak of zero
+means no signal ever arrived — never a quiet participant.
+
 ### Trace symmetry
 
 | | Human | Agent |

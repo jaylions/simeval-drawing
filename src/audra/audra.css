@@ -209,3 +209,34 @@
   color: #a13b2c;
   margin-left: 4px;
 }
+
+.audra-meter {
+  display: inline-block;
+  width: 54px;
+  height: 6px;
+  margin-left: 8px;
+  border-radius: 3px;
+  background: #e2e2de;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.audra-meter-fill {
+  display: block;
+  height: 100%;
+  background: #2f7d4f;
+  transition: width 90ms linear;
+}
+
+.audra-warning {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #fdf0e6;
+  border: 1px solid #e6c9a8;
+  color: #8a4b1f;
+  font-size: 13px;
+  line-height: 1.5;
+}
