@@ -1,0 +1,242 @@
+/* Scoped to the audra-incomplete-shapes mode. The task deliberately shows no
+   chrome beyond the instruction, the artboard, and the four allowed controls. */
+
+.audra-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #f4f4f2;
+  color: #1a1a1a;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  box-sizing: border-box;
+}
+
+.audra-instructions {
+  max-width: 560px;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.audra-instructions h1 {
+  margin: 0 0 16px;
+  font-size: 22px;
+}
+
+.audra-instruction-text {
+  font-size: 17px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.audra-instruction-list {
+  margin: 0 0 20px;
+  padding-left: 20px;
+  line-height: 1.7;
+  color: #444;
+}
+
+.audra-dev-notice {
+  font-size: 13px;
+  color: #8a6d1f;
+  background: #fdf6e3;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 20px;
+}
+
+.audra-field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.audra-field span {
+  display: block;
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 6px;
+}
+
+.audra-field input,
+.audra-field select,
+.audra-description input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 15px;
+  font-family: inherit;
+  background: #fff;
+}
+
+.audra-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(100%, 720px);
+}
+
+.audra-instruction-banner {
+  margin: 0;
+  font-size: 16px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.audra-canvas-frame {
+  width: 100%;
+}
+
+.audra-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #ffffff;
+  border: 1px solid #d4d4d0;
+  border-radius: 4px;
+}
+
+.audra-canvas--pencil { cursor: crosshair; }
+.audra-canvas--eraser { cursor: cell; }
+
+.audra-toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.audra-tool {
+  padding: 9px 16px;
+  border: 1px solid #c8c8c4;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 15px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.audra-tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.audra-tool--active {
+  background: #1a1a1a;
+  border-color: #1a1a1a;
+  color: #ffffff;
+}
+
+.audra-description {
+  width: 100%;
+}
+
+.audra-description span {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.audra-primary {
+  padding: 11px 26px;
+  border: none;
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: #ffffff;
+  font-size: 15px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.audra-primary:disabled {
+  background: #b5b5b1;
+  cursor: not-allowed;
+}
+
+.audra-confirm {
+  text-align: center;
+  background: #ffffff;
+  border: 1px solid #d4d4d0;
+  border-radius: 8px;
+  padding: 16px 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.audra-confirm p { margin: 0 0 12px; }
+
+.audra-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.audra-notice {
+  margin: 0;
+  color: #a13b2c;
+  font-size: 14px;
+}
+
+.audra-error {
+  margin: 8px 0 0;
+  color: #a13b2c;
+  font-size: 13px;
+}
+
+.audra-meta {
+  margin: 0;
+  font-size: 12px;
+  color: #8a8a86;
+}
+
+.audra-consent {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #555;
+  background: #f0f4f8;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 20px;
+}
+
+.audra-recording {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  color: #a13b2c;
+  margin-left: 4px;
+}
+
+.audra-meter {
+  display: inline-block;
+  width: 54px;
+  height: 6px;
+  margin-left: 8px;
+  border-radius: 3px;
+  background: #e2e2de;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.audra-meter-fill {
+  display: block;
+  height: 100%;
+  background: #2f7d4f;
+  transition: width 90ms linear;
+}
+
+.audra-warning {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #fdf0e6;
+  border: 1px solid #e6c9a8;
+  color: #8a4b1f;
+  font-size: 13px;
+  line-height: 1.5;
+}
