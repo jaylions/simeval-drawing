@@ -16,7 +16,8 @@
     "test:audra-driver": "node scripts/audraDriverParserIntegrity.test.mjs",
     "audra:agent": "node scripts/audraAgentDriver.mjs",
     "test:audra-export": "node scripts/audraExportIntegrity.test.mjs",
-    "test:audra-scoring-image": "node scripts/audraScoringImageIntegrity.test.mjs"
+    "test:audra-scoring-image": "node scripts/audraScoringImageIntegrity.test.mjs",
+    "audra:verify": "node scripts/audraVerifyBundle.mjs"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.17.0",
