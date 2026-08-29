@@ -137,6 +137,66 @@ Checked against AuDrA's real preprocessing on an exported bundle:
 
 `npm run test:audra-scoring-image` guards the RGB requirement.
 
+## Licensing: what we may and may not do
+
+Not legal advice. Confirm with the authors and your institution's research
+office before collecting data.
+
+| Component | Licence | Our use |
+| --- | --- | --- |
+| Barbot (2018), MTCI paper | CC BY 4.0 | Cite and quote freely. **Does not publish the stimulus set**, so it grants nothing over the stimuli themselves. |
+| Patterson et al. (2025), CAP paper | CC BY 4.0 | Cite and quote freely. |
+| `cap.ist.psu.edu` platform | CC BY-NC-ND 4.0 | Use the service. **ND** blocks distributing adaptations. |
+| AuDrA code and weights | CC BY-NC-SA 4.0 | Download and run to score our images. |
+| MTCI stimulus set | **No published licence found** | The blocker. See below. |
+
+**Scoring with AuDrA and publishing the results is fine.** Running a model over
+our own images is use, not adaptation: CC does not claim ownership of outputs,
+so the scores and any analysis of them are ours to publish. Non-commercial
+covers ordinary university research. ShareAlike only binds us if we distribute a
+*modified* AuDrA — if we fine-tune it or patch its code and release that, the
+release must be CC BY-NC-SA 4.0. Attribution is required either way.
+
+**Re-serving the MTCI stimuli inside this app is the part that needs written
+permission.** No licence grants it:
+
+- The MTCI paper is CC BY but publishes only a sample item, so CC BY covers the
+  article, not an unpublished stimulus bank.
+- The stimuli reach researchers through CAP and Crealyx. CAP's site licence is
+  ND, and lifting its stimuli into our own canvas is plausibly an adaptation.
+- Crealyx publishes no terms we could locate.
+- Beyond copyright, there is **test security**: reproducing or publishing
+  stimulus images can compromise an instrument for future use, and authors
+  often object on that ground alone.
+
+Ask both authors directly — John Patterson (`jpttrsn@psu.edu`, corresponding
+author on CAP/AuDrA) and Baptiste Barbot (MTCI/Crealyx) — for permission to
+render the official contours inside a custom canvas for a human-versus-agent
+methods comparison. Offering not to publish the stimulus images, only to
+describe them, usually resolves the test-security objection.
+
+### Why substituting our own stimuli is not a clean workaround
+
+CAP deliberately refuses custom items:
+
+> users can only select from the provided items and not edit or add custom
+> items. This is important for ensuring that the AI scoring models will be able
+> to accurately score participant responses.
+
+AuDrA was trained on drawings made over the official contours. Novel stimuli put
+it out of distribution, so the scores lose the validity evidence that motivated
+using AuDrA in the first place. Custom stimuli avoid the permission question at
+the cost of the measurement claim.
+
+### Our task fidelity
+
+CAP describes its Drawing Task as: a starting image of four contours that
+loosely exhibit Gestalt closure; sketch a drawing as creative as possible
+incorporating them; an eraser and an "Undo Last" button; a text box below the
+canvas asking "What did you draw?". This mode implements exactly that, which is
+good for comparability and also makes clear that it is a reimplementation of
+their task — another reason to seek permission rather than infer it.
+
 ## Open questions to settle before data collection
 
 - Which MTCI stimuli to use, and permission to render them in a custom canvas.
